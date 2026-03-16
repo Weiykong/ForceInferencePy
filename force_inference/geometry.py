@@ -216,20 +216,27 @@ def _trace_and_measure_curvature(tissue: Tissue) -> Tissue:
         
         # --- 1. Trace ---
         if c1 not in bboxes or c2 not in bboxes:
-            curvature_list.append(0.0); tissue.E_pixels.append(np.zeros((0,2))); tissue.E_circles.append(None)
+            curvature_list.append(0.0)
+            tissue.E_pixels.append(np.zeros((0,2)))
+            tissue.E_circles.append(None)
             continue
             
+        # Sub-image bounds
         b1, b2 = bboxes[c1], bboxes[c2]
-        min_r = max(0, min(b1[0], b2[0]) - 2); max_r = min(H, max(b1[2], b2[2]) + 2)
-        min_c = max(0, min(b1[1], b2[1]) - 2); max_c = min(W, max(b1[3], b2[3]) + 2)
-        
+        min_r = max(0, min(b1[0], b2[0]) - 2)
+        max_r = min(H, max(b1[2], b2[2]) + 2)
+        min_c = max(0, min(b1[1], b2[1]) - 2)
+        max_c = min(W, max(b1[3], b2[3]) + 2)
+
         sub_lbl = labels[min_r:max_r, min_c:max_c]
-        m1 = (sub_lbl == c1); m2 = (sub_lbl == c2)
+        m1 = (sub_lbl == c1)
+        m2 = (sub_lbl == c2)
         boundary_mask = morphology.binary_dilation(m1, morphology.disk(1)) & m2
         pts_y, pts_x = np.where(boundary_mask)
-        
         if len(pts_y) < 3:
-            curvature_list.append(0.0); tissue.E_pixels.append(np.zeros((0,2))); tissue.E_circles.append(None)
+            curvature_list.append(0.0)
+            tissue.E_pixels.append(np.zeros((0,2)))
+            tissue.E_circles.append(None)
             continue
             
         points = np.column_stack((pts_x + min_c, pts_y + min_r))

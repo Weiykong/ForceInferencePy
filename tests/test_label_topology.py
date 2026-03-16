@@ -15,7 +15,6 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -175,7 +174,7 @@ def test_twin_junction():
 
     plt.tight_layout()
     plt.savefig('test_twin_junction.png', dpi=150)
-    print(f"\nSaved: test_twin_junction.png")
+    print("\nSaved: test_twin_junction.png")
 
 
 # =============================================================================
@@ -249,7 +248,7 @@ def test_real_data():
 
     plt.tight_layout()
     plt.savefig('test_real_comparison.png', dpi=150)
-    print(f"\nSaved: test_real_comparison.png")
+    print("\nSaved: test_real_comparison.png")
 
 
 # =============================================================================
@@ -311,7 +310,7 @@ def test_micro_twin():
         if missing:
             print(f"  ✗ MISSING cell pairs: {missing}")
         else:
-            print(f"  ✓ All 4 cell-pair interfaces found!")
+            print("  ✓ All 4 cell-pair interfaces found!")
     else:
         print("  FAILED: No topology extracted")
 

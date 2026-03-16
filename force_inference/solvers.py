@@ -2,7 +2,7 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg
 import logging
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Union
 from dataclasses import dataclass
 
 from .core import Tissue, ForceResult
@@ -30,7 +30,8 @@ def solve_bayesian(tissue: Tissue,
                               boundary vertices (recommended for cleaner results)
     """
     matrices = _build_bayesian_matrices(tissue, exclude_border_edges=exclude_border_edges)
-    if matrices is None: return None
+    if matrices is None:
+        return None
     A, B, g, n_eq, n_vars, real_edge_indices = matrices
     n_real_edges = len(real_edge_indices)
 
@@ -96,7 +97,8 @@ def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
     E = tissue.E
     E_cells = tissue.E_cells
     C_v = tissue.C_v
-    if len(V) == 0: return None
+    if len(V) == 0:
+        return None
     H_img, W_img = tissue.labels.shape
     margin = 5
 
@@ -177,16 +179,23 @@ def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
         length = np.linalg.norm(d_vec) + 1e-9
         u = d_vec / length
         if v1 in v_map:
-            r = 2 * v_map[v1]; A[r, new_idx] += u[0]; A[r+1, new_idx] += u[1]
+            r = 2 * v_map[v1]
+            A[r, new_idx] += u[0]
+            A[r+1, new_idx] += u[1]
         if v2 in v_map:
-            r = 2 * v_map[v2]; A[r, new_idx] -= u[0]; A[r+1, new_idx] -= u[1]
+            r = 2 * v_map[v2]
+            A[r, new_idx] -= u[0]
+            A[r+1, new_idx] -= u[1]
 
     for c_idx, verts in enumerate(C_v):
         n_verts = len(verts)
-        if n_verts < 3: continue
+        if n_verts < 3:
+            continue
         for i, vc in enumerate(verts):
-            if vc not in v_map: continue
-            vp = verts[i - 1]; vn = verts[(i + 1) % n_verts]
+            if vc not in v_map:
+                continue
+            vp = verts[i - 1]
+            vn = verts[(i + 1) % n_verts]
             r = 2 * v_map[vc]
             A[r, n_edges + c_idx] += 0.5 * (V[vp, 1] - V[vn, 1])
             A[r+1, n_edges + c_idx] += 0.5 * (V[vn, 0] - V[vp, 0])
@@ -213,9 +222,10 @@ def _solve_single_mu(A, B, g, mu, n_eq, tissue, real_edge_indices) -> ForceResul
     # Reconstruct full tension array (NaN for excluded border edges)
     full_tensions = np.full(len(tissue.E), np.nan)
     full_tensions[real_edge_indices] = x[:n_real_edges]
-
+    # Center pressures
     pressures = x[n_real_edges:]
-    if len(pressures) > 0: pressures = pressures - np.mean(pressures)
+    if len(pressures) > 0:
+        pressures = pressures - np.mean(pressures)
     return ForceResult(tensions=full_tensions, pressures=pressures, residual=res[3])
 
 def _compute_log_evidence_robust(A, B, g, mu, result, ATA, n_eq, n_real_edges):
@@ -242,7 +252,8 @@ def _compute_log_evidence_robust(A, B, g, mu, result, ATA, n_eq, n_real_edges):
     # This represents the total "energy" of the solution
     total_chi2 = E_data + mu * E_prior
     
-    if total_chi2 < 1e-12: total_chi2 = 1e-12
+    if total_chi2 < 1e-12:
+        total_chi2 = 1e-12
 
     # 2. Complexity Penalty (Log Determinant)
     # H = A'A + mu * B'B
@@ -322,15 +333,22 @@ def solve_laplace(tissue: Tissue,
         t2 = tissue.E_tangents[e_idx, 1]
         
         if v1 in v_map:
-            r = 2 * v_map[v1]; rows.extend([r, r+1]); cols.extend([e_idx, e_idx]); data.extend(t1)
+            r = 2 * v_map[v1]
+            rows.extend([r, r+1])
+            cols.extend([e_idx, e_idx])
+            data.extend(t1)
         if v2 in v_map:
-            r = 2 * v_map[v2]; rows.extend([r, r+1]); cols.extend([e_idx, e_idx]); data.extend(t2)
+            r = 2 * v_map[v2]
+            rows.extend([r, r+1])
+            cols.extend([e_idx, e_idx])
+            data.extend(t2)
             
     M = sp.csr_matrix((data, (rows, cols)), shape=(n_balance, n_vars))
     
     # Regularization
     reg_w = regularization * np.sqrt(n_balance / max(1, n_vars))
-    R_rows = np.arange(n_vars); R_cols = np.arange(n_vars)
+    R_rows = np.arange(n_vars)
+    R_cols = np.arange(n_vars)
     R_data = np.full(n_vars, reg_w)
     R = sp.csr_matrix((R_data, (R_rows, R_cols)), shape=(n_vars, n_vars))
     b_reg = np.full(n_vars, reg_w * float(tension_val))
@@ -358,9 +376,13 @@ def solve_laplace(tissue: Tissue,
         laplace_val = 2.0 * T_val * kappa
         
         if c1 in c_map:
-            rows_p.append(eq_idx); cols_p.append(c_map[c1]); data_p.append(1.0)
+            rows_p.append(eq_idx)
+            cols_p.append(c_map[c1])
+            data_p.append(1.0)
         if c2 in c_map:
-            rows_p.append(eq_idx); cols_p.append(c_map[c2]); data_p.append(-1.0)
+            rows_p.append(eq_idx)
+            cols_p.append(c_map[c2])
+            data_p.append(-1.0)
             
         b_p.append(laplace_val)
         eq_idx += 1
@@ -368,11 +390,14 @@ def solve_laplace(tissue: Tissue,
     weight_border = 10.0
     for c in valid_cells:
         if c in border_cell_indices:
-            rows_p.append(eq_idx); cols_p.append(c_map[c]); data_p.append(weight_border)
+            rows_p.append(eq_idx)
+            cols_p.append(c_map[c])
+            data_p.append(weight_border)
             b_p.append(0.0)
             eq_idx += 1
 
-    if eq_idx == 0: return None
+    if eq_idx == 0:
+        return None
 
     L_mat = sp.csr_matrix((data_p, (rows_p, cols_p)), shape=(eq_idx, len(c_map)))
     B_vec = np.array(b_p)

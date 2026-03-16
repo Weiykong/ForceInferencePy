@@ -28,7 +28,7 @@ robust tissue-topology libraries.
 
 import numpy as np
 from skimage import morphology, measure
-from scipy.ndimage import label as nd_label, maximum_filter, convolve
+from scipy.ndimage import label as nd_label
 from scipy.spatial import cKDTree
 from scipy.interpolate import splprep, splev
 import logging
@@ -1016,7 +1016,6 @@ def _cluster_vertex_pixels(
             #   (b) has a different cell set
             #   (c) spatially separated from dominant (> cluster_r)
             merged_cells = set(dominant_sig)
-            merged_pts_list = [dominant_centroid]
             split_groups = []
 
             for sig, centroid, count in sig_groups[1:]:
@@ -1965,9 +1964,12 @@ def _clean_tissue_graph(tissue: Tissue, min_edge_len: float) -> Tissue:
         new_E_cells, new_pixels = [], []
         for key in new_keys:
             cells = sorted(edge_to_data[key]['cells'])
-            if   len(cells) == 0: new_E_cells.append([0, 0])
-            elif len(cells) == 1: new_E_cells.append([cells[0], 0])
-            else:                 new_E_cells.append(cells[:2])
+            if len(cells) == 0:
+                new_E_cells.append([0, 0])
+            elif len(cells) == 1:
+                new_E_cells.append([cells[0], 0])
+            else:
+                new_E_cells.append(cells[:2])
             if E_pixels is not None:
                 new_pixels.append(edge_to_data[key]['pixels'])
 

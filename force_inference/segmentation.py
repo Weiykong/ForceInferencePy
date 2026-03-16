@@ -4,7 +4,7 @@ import numpy as np
 import os
 import logging
 from scipy import ndimage
-from skimage import io, morphology, measure, segmentation, color, filters
+from skimage import io, morphology, measure, segmentation
 from typing import Tuple
 
 logger = logging.getLogger("ForceInference.Segmentation")

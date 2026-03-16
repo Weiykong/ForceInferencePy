@@ -40,7 +40,8 @@ def plot_map(ax, tissue, values, title):
     
     # Normalize for view
     val_disp = values[values!=0]
-    if len(val_disp)==0: return
+    if len(val_disp)==0:
+        return
     v_min, v_max = np.percentile(val_disp, [2, 98])
     
     sc = ax.scatter(cents[:,0], cents[:,1], c=values[:len(cents)], 

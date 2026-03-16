@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import os
 
 from force_inference import segmentation, topology, solvers, geometry, visualization

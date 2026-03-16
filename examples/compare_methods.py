@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage import io
 import logging
 import os
 
@@ -17,7 +16,8 @@ def run_comparison_demo(img_path='data/test_image.tif'):
     # ---------------------------------------------------------
     print("\n--- Running Bayesian Inference ---")
     tissue_bayes = topology.extract_topology(labels, min_edge_len=4.0, clean=True, trace_pixels=False)
-    if tissue_bayes is None: return
+    if tissue_bayes is None:
+        return
     res_bayes = solvers.solve_bayesian(tissue_bayes, mu=1.0)
     
     # ---------------------------------------------------------
@@ -100,10 +100,12 @@ def run_comparison_demo(img_path='data/test_image.tif'):
 def normalize(data):
     """Returns Z-score. Handles constant data by returning zeros."""
     valid = data[data != 0]
-    if len(valid) == 0: return data
+    if len(valid) == 0:
+        return data
     
     std = np.std(valid)
-    if std < 1e-6: return np.zeros_like(data)
+    if std < 1e-6:
+        return np.zeros_like(data)
     
     return (data - np.mean(valid)) / std
 
@@ -123,9 +125,11 @@ def get_cell_mean_tensions(tissue, edge_tensions):
         if not np.isfinite(val):
             continue
         if c1 > 0: 
-            cell_tensions[c1-1] += val; cell_counts[c1-1] += 1
+            cell_tensions[c1-1] += val
+            cell_counts[c1-1] += 1
         if c2 > 0: 
-            cell_tensions[c2-1] += val; cell_counts[c2-1] += 1
+            cell_tensions[c2-1] += val
+            cell_counts[c2-1] += 1
             
     mask = cell_counts > 0
     cell_tensions[mask] /= cell_counts[mask]
@@ -134,10 +138,10 @@ def get_cell_mean_tensions(tissue, edge_tensions):
 def plot_map(ax, tissue, values, title, cmap='viridis'):
     """Plots cell values. Handles constant values gracefully."""
     ax.imshow(tissue.labels, cmap='gray', alpha=0.3)
-    
     centroids = tissue.C_centroids
-    if len(values) > len(centroids): values = values[:len(centroids)]
-    
+    if len(values) > len(centroids):
+        values = values[:len(centroids)]
+
     # Robust scaling
     if np.ptp(values) < 1e-6: 
         # Constant data (e.g. Laplace Tension)

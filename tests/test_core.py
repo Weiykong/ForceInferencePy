@@ -1,8 +1,6 @@
 """Tests for force_inference.core — Tissue and ForceResult data structures."""
 import numpy as np
-import pytest
 
-from force_inference.core import Tissue, ForceResult
 
 
 class TestTissue:

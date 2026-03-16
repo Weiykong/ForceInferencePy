@@ -74,7 +74,7 @@ def test_4cell_junction():
         extra = pairs_label - expected
 
         if not missing and not extra:
-            print(f"  ✓ PASS: All expected cell pairs found!")
+            print("  ✓ PASS: All expected cell pairs found!")
         else:
             if missing:
                 print(f"  ✗ MISSING: {missing}")
@@ -138,11 +138,11 @@ def test_6cell_grid():
 
         print(f"  Expected: {len(expected)}, Got: {len(pairs)}")
         if not missing:
-            print(f"  ✓ No missing pairs")
+            print("  ✓ No missing pairs")
         else:
             print(f"  ✗ MISSING: {missing}")
         if not extra:
-            print(f"  ✓ No extra pairs")
+            print("  ✓ No extra pairs")
         else:
             print(f"  ! EXTRA: {extra}")
     else:
@@ -208,7 +208,7 @@ def test_twin_junction_simple():
         missing = expected - pairs
 
         if not missing:
-            print(f"  ✓ PASS: All 6 cell-pair edges found!")
+            print("  ✓ PASS: All 6 cell-pair edges found!")
         else:
             print(f"  ✗ MISSING: {missing}")
     else:

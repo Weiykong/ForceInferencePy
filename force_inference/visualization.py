@@ -11,7 +11,7 @@ from matplotlib.patches import Polygon
 from matplotlib.colors import Normalize
 from scipy.interpolate import splprep, splev
 import logging
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple
 
 from .core import Tissue, ForceResult
 
@@ -233,8 +233,8 @@ def plot_pressures(ax: plt.Axes,
     max_abs = np.max(np.abs(vals)) if len(vals) > 0 else 1.0
     norm = Normalize(vmin=-max_abs, vmax=max_abs)
     
-    sc = ax.scatter(pts[:, 0], pts[:, 1], c=vals, cmap=cmap, 
-                    s=size, edgecolors='k', norm=norm)
+    ax.scatter(pts[:, 0], pts[:, 1], c=vals, cmap=cmap, 
+               s=size, edgecolors='k', norm=norm)
     
     ax.set_aspect('equal')
     ax.axis('off')

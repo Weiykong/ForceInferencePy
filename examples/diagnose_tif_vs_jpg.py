@@ -13,7 +13,7 @@ import argparse
 import numpy as np
 from PIL import Image
 from skimage import morphology
-from scipy.ndimage import convolve, label as nd_label
+from scipy.ndimage import convolve
 from scipy.spatial import cKDTree
 import matplotlib
 matplotlib.use('Agg')
@@ -69,7 +69,8 @@ def labels_to_boundary_thin(labels):
 
 
 def count_branch_points(skel):
-    kernel = np.ones((3, 3), dtype=np.uint8); kernel[1, 1] = 0
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    kernel[1, 1] = 0
     nc = convolve(skel.astype(np.uint8), kernel, mode='constant', cval=0)
     return skel & (nc >= 3), nc
 
@@ -83,7 +84,8 @@ def cluster_count(branch_mask, r=3.0):
     visited = np.zeros(len(coords), dtype=bool)
     n = 0
     for i in range(len(coords)):
-        if visited[i]: continue
+        if visited[i]:
+            continue
         nb = tree.query_ball_point(coords[i], r)
         visited[nb] = True
         n += 1
@@ -111,7 +113,7 @@ def analyze(name, boundary, ax_row):
     ax_row[0].set_title(f'{name}\nboundary ({np.sum(boundary)} px)')
 
     ax_row[1].imshow(disp)
-    ax_row[1].set_title(f'Skeleton\ngreen=edge  red=branch  blue=endpoint')
+    ax_row[1].set_title('Skeleton\ngreen=edge  red=branch  blue=endpoint')
 
     by, bx = np.where(branch_mask)
     ax_row[2].imshow(skel, cmap='gray', alpha=0.4)
@@ -131,17 +133,21 @@ def analyze(name, boundary, ax_row):
     # membrane thickness estimate
     col = boundary[:, boundary.shape[1]//2]
     runs = []
-    in_run = False; run_len = 0
+    in_run = False
+    run_len = 0
     for v in col:
         if v:
-            in_run = True; run_len += 1
+            in_run = True
+            run_len += 1
         elif in_run:
-            runs.append(run_len); in_run = False; run_len = 0
+            runs.append(run_len)
+            in_run = False
+            run_len = 0
     if runs:
         print(f"  membrane thickness (mid-col): "
               f"mean={np.mean(runs):.1f}px  max={max(runs)}px  min={min(runs)}px")
     else:
-        print(f"  membrane thickness: (no runs found in mid column)")
+        print("  membrane thickness: (no runs found in mid column)")
 
     return skel, branch_mask
 

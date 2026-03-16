@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tifffile
 from force_inference.topology_label import extract_topology_label
-from force_inference import geometry, segmentation, solvers, topology, visualization
+from force_inference import geometry, segmentation, solvers, visualization
 
 
 def _load_membrane_binary(filename):

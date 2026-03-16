@@ -7,7 +7,8 @@ Also tests different pre-dilation amounts to find the minimum that recovers all 
 Usage:
     python diagnose_junctions.py --tif test.tif --out /tmp/junc
 """
-import argparse, os
+import argparse
+import os
 import numpy as np
 from PIL import Image
 from skimage import morphology
@@ -26,9 +27,12 @@ def load_tif_2d(path):
     except ImportError:
         arr = np.array(Image.open(path).convert('L'))
     if arr.ndim == 3:
-        if arr.shape[0] <= 4:   arr = arr[0]
-        elif arr.shape[2] <= 4: arr = (0.299*arr[:,:,0]+0.587*arr[:,:,1]+0.114*arr[:,:,2]).astype(arr.dtype)
-        else:                   arr = arr.max(axis=0)
+        if arr.shape[0] <= 4:
+            arr = arr[0]
+        elif arr.shape[2] <= 4:
+            arr = (0.299*arr[:,:,0]+0.587*arr[:,:,1]+0.114*arr[:,:,2]).astype(arr.dtype)
+        else:
+            arr = arr.max(axis=0)
     return arr
 
 
@@ -38,7 +42,8 @@ def skeleton_stats(binary, dilation_r=0):
     if dilation_r > 0:
         mask = morphology.dilation(mask, morphology.disk(dilation_r))
     skel = morphology.skeletonize(mask)
-    kernel = np.ones((3,3), dtype=np.uint8); kernel[1,1] = 0
+    kernel = np.ones((3,3), dtype=np.uint8)
+    kernel[1,1] = 0
     nc = convolve(skel.astype(np.uint8), kernel, mode='constant', cval=0)
     branch_mask = skel & (nc >= 3)
     by, bx = np.where(branch_mask)
@@ -46,12 +51,14 @@ def skeleton_stats(binary, dilation_r=0):
 
 
 def cluster(coords, r=4.0):
-    if len(coords) == 0: return coords
+    if len(coords) == 0:
+        return coords
     tree = cKDTree(coords)
     visited = np.zeros(len(coords), dtype=bool)
     out = []
     for i in range(len(coords)):
-        if visited[i]: continue
+        if visited[i]:
+            continue
         nb = tree.query_ball_point(coords[i], r)
         out.append(coords[nb].mean(axis=0))
         visited[nb] = True
@@ -93,7 +100,8 @@ def main():
                  '(red=branch, green=edge, blue=endpoint, yellow=clustered vertex)', fontsize=11)
     plt.tight_layout()
     p = os.path.join(args.out, 'dilation_comparison.png')
-    plt.savefig(p, dpi=130, bbox_inches='tight'); plt.close()
+    plt.savefig(p, dpi=130, bbox_inches='tight')
+    plt.close()
     print(f"Saved: {p}")
 
     # ── Figure 2: zoom into missed junctions (low-branch regions) ────────
@@ -118,7 +126,7 @@ def main():
         top_idx = np.argsort(scores)[::-1][:9]
         top_junctions = ep_clustered[top_idx]
 
-        print(f"\nTop missed junction candidates (by nearby endpoint count):")
+        print("\nTop missed junction candidates (by nearby endpoint count):")
         for i, (cx, cy) in enumerate(top_junctions):
             print(f"  [{i}] center=({cx:.0f},{cy:.0f})  nearby_endpoints={scores[top_idx[i]]}")
 
@@ -139,21 +147,26 @@ def main():
 
             # Overlay dilation=0 skeleton (green)
             crop0 = skel0[y0:y1, x0:x1]
-            ys0, xs0 = np.where(crop0); ax.scatter(xs0, ys0, c='lime', s=2, alpha=0.7)
+            ys0, xs0 = np.where(crop0)
+            ax.scatter(xs0, ys0, c='lime', s=2, alpha=0.7)
 
             # Overlay dilation=1 skeleton (magenta) for comparison
             crop1 = skel1[y0:y1, x0:x1]
-            ys1, xs1 = np.where(crop1); ax.scatter(xs1, ys1, c='magenta', s=2, alpha=0.5)
+            ys1, xs1 = np.where(crop1)
+            ax.scatter(xs1, ys1, c='magenta', s=2, alpha=0.5)
 
             # Branch pixels (dilation=0): red; dilation=1: yellow
-            br0c = bm0[y0:y1, x0:x1]; yb0,xb0 = np.where(br0c)
-            br1c = bm1[y0:y1, x0:x1]; yb1,xb1 = np.where(br1c)
+            br0c = bm0[y0:y1, x0:x1]
+            yb0,xb0 = np.where(br0c)
+            br1c = bm1[y0:y1, x0:x1]
+            yb1,xb1 = np.where(br1c)
             ax.scatter(xb0, yb0, c='red',    s=20, zorder=10)
             ax.scatter(xb1, yb1, c='yellow', s=20, zorder=10, marker='*')
 
             ax.set_title(f'Junction {i}  ({cx},{cy})\n'
                          f'red=branch(d=0)  yellow★=branch(d=1)', fontsize=8)
-            ax.set_xlim(0, x1-x0); ax.set_ylim(y1-y0, 0)
+            ax.set_xlim(0, x1-x0)
+            ax.set_ylim(y1-y0, 0)
             ax.axis('off')
 
         for j in range(n_show, len(axes)):
@@ -168,7 +181,8 @@ def main():
                      'yellow stars = branches recovered by disk(1) dilation', fontsize=11)
         plt.tight_layout()
         p2 = os.path.join(args.out, 'missed_junctions_zoom.png')
-        plt.savefig(p2, dpi=130, bbox_inches='tight'); plt.close()
+        plt.savefig(p2, dpi=130, bbox_inches='tight')
+        plt.close()
         print(f"Saved: {p2}")
 
     # ── Print recommendation ──────────────────────────────────────────────
@@ -179,7 +193,7 @@ def main():
     print(f"\nVertex counts by dilation: {dict(zip(dils, counts))}")
     best = dils[int(np.argmax(counts))]
     print(f"→ Recommended dilation: disk({best})  (maximizes vertex count)")
-    print(f"\nIn topology.py _labels_to_boundary or extract_topology, add:")
+    print("\nIn topology.py _labels_to_boundary or extract_topology, add:")
     print(f"    boundary = morphology.dilation(boundary, morphology.disk({best}))")
 
 

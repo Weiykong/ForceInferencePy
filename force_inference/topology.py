@@ -696,9 +696,12 @@ def _clean_tissue_graph(tissue: "Tissue", min_edge_len: float) -> "Tissue":
         new_E_cells, new_pixels = [], []
         for key in new_keys:
             cells = sorted(edge_to_data[key]['cells'])
-            if   len(cells) == 0: new_E_cells.append([0, 0])
-            elif len(cells) == 1: new_E_cells.append([cells[0], 0])
-            else:                 new_E_cells.append(cells[:2])
+            if len(cells) == 0:
+                new_E_cells.append([0, 0])
+            elif len(cells) == 1:
+                new_E_cells.append([cells[0], 0])
+            else:
+                new_E_cells.append(cells[:2])
             if E_pixels is not None:
                 new_pixels.append(edge_to_data[key]['pixels'])
 
@@ -710,7 +713,8 @@ def _clean_tissue_graph(tissue: "Tissue", min_edge_len: float) -> "Tissue":
             for seq in C_v:
                 new_seq, last_v = [], None
                 for vi in seq:
-                    if vi < 0 or vi >= len(parent): continue
+                    if vi < 0 or vi >= len(parent):
+                        continue
                     nv = mapping[parent[vi]]
                     if last_v is None or nv != last_v:
                         new_seq.append(nv)
@@ -727,7 +731,10 @@ def _clean_tissue_graph(tissue: "Tissue", min_edge_len: float) -> "Tissue":
             break
 
     tissue.V, tissue.E = V, E
-    if E_cells  is not None: tissue.E_cells  = E_cells
-    if C_v      is not None: tissue.C_v      = C_v
-    if E_pixels is not None: tissue.E_pixels = E_pixels
+    if E_cells is not None:
+        tissue.E_cells = E_cells
+    if C_v is not None:
+        tissue.C_v = C_v
+    if E_pixels is not None:
+        tissue.E_pixels = E_pixels
     return tissue

@@ -3,7 +3,7 @@ import numpy as np
 import os
 import tifffile
 
-from force_inference import segmentation, topology, solvers, visualization
+from force_inference import segmentation, solvers, visualization
 from force_inference.topology_label import extract_topology_label
 
 def run_demo():

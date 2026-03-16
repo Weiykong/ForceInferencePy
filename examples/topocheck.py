@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import os
 import logging
 import numpy as np
@@ -7,7 +6,7 @@ from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
 import tifffile
 
-from force_inference import segmentation, topology, visualization
+from force_inference import segmentation, topology
 
 logging.basicConfig(level=logging.INFO)
 
