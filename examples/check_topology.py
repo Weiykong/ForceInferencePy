@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 
 def main():
     # 1. Setup
-    filename = '/Users/weiyuankong/ForceInferencePy_old/infrence_gemini/test.tif'
+    filename = '../data/test.tif'
     
     if not os.path.exists(filename):
         print("Image not found.")

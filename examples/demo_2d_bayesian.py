@@ -7,7 +7,7 @@ from force_inference import segmentation, topology, solvers, visualization
 from force_inference.topology_label import extract_topology_label
 
 def run_demo():
-    filename = '/Users/weiyuankong/ForceInferencePy/data/example.tif'
+    filename = '../data/example.tif'
     if not os.path.exists(filename):
         print(f"File {filename} not found.")
         return

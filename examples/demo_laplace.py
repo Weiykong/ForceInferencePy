@@ -24,7 +24,7 @@ def _load_membrane_binary(filename):
     return membrane_binary
 
 
-def run_laplace_demo(filename="/Users/weiyuankong/ForceInferencePy/data/example.tif"):
+def run_laplace_demo(filename="../data/example.tif"):
     if not os.path.exists(filename):
         print(f"File {filename} not found.")
         return
