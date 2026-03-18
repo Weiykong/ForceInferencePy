@@ -25,6 +25,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.claude/
+.github/
 
 # PyInstaller
 #  Usually these files are written by a python script, before PyInstaller builds the exe, so as to
