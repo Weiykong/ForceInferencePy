@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import os
 import logging
 import numpy as np
+import argparse
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
 import tifffile
@@ -62,7 +63,7 @@ def plot_topology_check(ax: plt.Axes, tissue, img: np.ndarray = None, fix_zigzag
         ax.add_collection(p)
 
     # --- 3. Draw Edges ---
-    if tissue.E_pixels is not None and len(tissue.E_pixels) == len(tissue.E):
+    if hasattr(tissue, 'E_pixels') and tissue.E_pixels is not None and len(tissue.E_pixels) == len(tissue.E):
         for i, px in enumerate(tissue.E_pixels):
             if len(px) > 1:
                 if fix_zigzag:
@@ -97,11 +98,9 @@ def plot_topology_check(ax: plt.Axes, tissue, img: np.ndarray = None, fix_zigzag
     ax.axis('off')
 
 
-def main():
-    filename = '../data/test.tif'
-
+def run_topocheck(filename, method="cellpose"):
     if not os.path.exists(filename):
-        print("Image not found.")
+        print(f"Image not found: {filename}")
         return
 
     # --- Load original image for background ---
@@ -115,8 +114,15 @@ def main():
         img_display /= img_display.max()
 
     # --- Segmentation ---
-    print("Segmenting...")
-    labels, _ = segmentation.segment_grayscale(filename, h_depth=8.0, min_cell_size=10)
+    print(f"Segmenting image using {method}...")
+    if method == "cellpose":
+        try:
+            labels, _ = segmentation.segment_cellpose(filename, model_type="cyto3")
+        except ImportError:
+            print("Cellpose not found, falling back to grayscale.")
+            labels, _ = segmentation.segment_grayscale(filename, h_depth=8.0, min_cell_size=10)
+    else:
+        labels, _ = segmentation.segment_grayscale(filename, h_depth=8.0, min_cell_size=10)
 
     # --- Topology Extraction ---
     print("Extracting Topology...")
@@ -130,11 +136,6 @@ def main():
 
     # --- Plot: side by side (original | topology overlay) ---
     fig, axes = plt.subplots(1, 1, figsize=(18, 9))
-
-    # Left: raw image
-    # axes[0].imshow(img_display, cmap='gray', origin='upper')
-    # axes[0].set_title("Original Image", fontsize=13)
-    # axes[0].axis('off')
 
     # Right: topology overlay on original
     plot_topology_check(axes, tissue, img=img_display, fix_zigzag=True)
@@ -150,4 +151,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Topology Check Demo")
+    parser.add_argument("--filename", type=str, default="../data/test.tif", help="Path to TIF image")
+    parser.add_argument("--method", type=str, default="cellpose", choices=["cellpose", "grayscale"], 
+                        help="Segmentation method (default: cellpose)")
+    args = parser.parse_args()
+    
+    run_topocheck(args.filename, args.method)

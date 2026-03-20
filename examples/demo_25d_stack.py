@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import argparse
+import os
 from force_inference import segmentation, topology, geometry, solvers, visualization
 
 def create_mock_z_stack(shape):
@@ -19,10 +21,21 @@ def create_mock_z_stack(shape):
                 stack[z_idx, i, j] = 255 # Bright membrane pixel
     return stack
 
-def run_25d_demo(filename):
+def run_25d_demo(filename, method="cellpose"):
+    if not os.path.exists(filename):
+        print(f"File {filename} not found.")
+        return
+
     # 1. Segment (Standard 2D projection)
-    
-    labels, img = segmentation.segment_grayscale(filename)
+    print(f"Segmenting image using {method}...")
+    if method == "cellpose":
+        try:
+            labels, img = segmentation.segment_cellpose(filename, model_type="cyto3")
+        except ImportError:
+            print("Cellpose not found, falling back to grayscale.")
+            labels, img = segmentation.segment_grayscale(filename)
+    else:
+        labels, img = segmentation.segment_grayscale(filename)
     
     # 2. Topology
     tissue = topology.extract_topology(labels)
@@ -67,5 +80,10 @@ def run_25d_demo(filename):
     plt.show()
 
 if __name__ == "__main__":
-    filename = './data/example.tif'
-    run_25d_demo(filename)
+    parser = argparse.ArgumentParser(description="2.5D Stack Force Inference Demo")
+    parser.add_argument("--filename", type=str, default="./data/example.tif", help="Path to TIF image")
+    parser.add_argument("--method", type=str, default="cellpose", choices=["cellpose", "grayscale"], 
+                        help="Segmentation method (default: cellpose)")
+    args = parser.parse_args()
+    
+    run_25d_demo(args.filename, args.method)

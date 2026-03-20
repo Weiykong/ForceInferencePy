@@ -8,7 +8,7 @@ from .geometry import (
     interpolate_stress_to_grid,
     compute_curvature,
 )
-from .segmentation import segment_grayscale
+from .segmentation import segment_grayscale, segment_cellpose
 from .visualization import (
     plot_tensions,
     plot_pressures,
@@ -31,6 +31,7 @@ __all__ = [
     "interpolate_stress_to_grid",
     "compute_curvature",
     "segment_grayscale",
+    "segment_cellpose",
     "plot_tensions",
     "plot_pressures",
     "plot_curvature",

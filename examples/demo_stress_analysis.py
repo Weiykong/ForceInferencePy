@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import os
+import argparse
 
 from force_inference import segmentation, topology, solvers, geometry, visualization
 
-def run_stress_demo(filename):
+def run_stress_demo(filename, method="cellpose"):
     # 1. Setup
     
     if not os.path.exists(filename):
@@ -11,8 +12,17 @@ def run_stress_demo(filename):
         return
 
     # 2. Pipeline: Segment -> Topology -> Solver
-    print("Running pipeline...")
-    labels, img = segmentation.segment_grayscale(filename, h_depth=5.0)
+    print(f"Segmenting image using {method}...")
+    if method == "cellpose":
+        try:
+            labels, img = segmentation.segment_cellpose(filename, model_type="cyto3")
+        except ImportError:
+            print("Cellpose not found, falling back to grayscale.")
+            labels, img = segmentation.segment_grayscale(filename, h_depth=5.0)
+    else:
+        labels, img = segmentation.segment_grayscale(filename, h_depth=5.0)
+
+    print("Extracting topology...")
     tissue = topology.extract_topology(labels, min_edge_len=3.0)
     
     if tissue is None:
@@ -68,5 +78,10 @@ def run_stress_demo(filename):
     plt.show()
 
 if __name__ == "__main__":
-    filename = './data/example.tif' # Replace with actual path
-    run_stress_demo(filename)
+    parser = argparse.ArgumentParser(description="Stress Analysis Demo")
+    parser.add_argument("--filename", type=str, default="./data/example.tif", help="Path to TIF image")
+    parser.add_argument("--method", type=str, default="cellpose", choices=["cellpose", "grayscale"], 
+                        help="Segmentation method (default: cellpose)")
+    args = parser.parse_args()
+    
+    run_stress_demo(args.filename, args.method)
