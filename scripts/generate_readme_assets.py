@@ -16,6 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import patheffects
+from scipy import ndimage
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -40,7 +41,7 @@ def _segment_image(
             labels, gray = segmentation.segment_cellpose(
                 str(img_path),
                 model_type=model_type,
-                gpu=False,
+                gpu=True,
             )
             method = f"Cellpose ({model_type})"
             return labels, gray, method
@@ -96,6 +97,23 @@ def _label_rgb(labels: np.ndarray) -> np.ndarray:
         palette[1 : n_labels + 1] = rgb
 
     return palette[labels]
+
+
+def _fill_label_gaps_for_display(labels: np.ndarray) -> np.ndarray:
+    """Fill zero-valued display gaps from the nearest labeled pixel.
+
+    This is only for the README segmentation panel so thin Cellpose slivers or
+    tiny unlabeled cracks do not render as black holes.
+    """
+    labels = np.asarray(labels)
+    if labels.ndim != 2 or not np.any(labels == 0) or not np.any(labels > 0):
+        return labels
+
+    filled = labels.copy()
+    _, (iy, ix) = ndimage.distance_transform_edt(labels == 0, return_indices=True)
+    zero_mask = filled == 0
+    filled[zero_mask] = filled[iy[zero_mask], ix[zero_mask]]
+    return filled
 
 
 def _vertex_degrees(edges: np.ndarray, n_vertices: int) -> np.ndarray:
@@ -179,11 +197,12 @@ def _save_pipeline_overview(
     bayes,
 ) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), constrained_layout=True)
+    display_labels = _fill_label_gaps_for_display(labels)
 
     axes[0, 0].imshow(gray, cmap="gray")
     axes[0, 0].set_title("1. Membrane image")
 
-    axes[0, 1].imshow(_label_rgb(labels))
+    axes[0, 1].imshow(_label_rgb(display_labels))
     axes[0, 1].set_title("2. Segmentation labels")
 
     axes[1, 0].imshow(gray, cmap="gray", alpha=0.55)
