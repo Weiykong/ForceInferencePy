@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "force_inference"
 version = "0.1.0"
 description = "A robust Python package for force inference in 2D and 2.5D tissues."
-readme = "QUICK_START.md"
+readme = "README.md"
 authors = [
     {name = "Wei-Yuan Kong", email = "weiyuankong@example.com"}
 ]
@@ -25,6 +25,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cellpose = [
+    "cellpose",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",

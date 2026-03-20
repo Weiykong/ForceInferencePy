@@ -79,13 +79,23 @@ def segment_cellpose(
         img_for_cp = img_for_cp.max() - img_for_cp
 
     # ---- Build model (CP3 or CP4 compatible) ----
+    try:
+        import torch
+        if gpu and torch.backends.mps.is_available():
+            logger.info("Initializing Cellpose with MPS (Apple Silicon GPU) support...")
+        elif gpu and torch.cuda.is_available():
+            logger.info("Initializing Cellpose with CUDA (NVIDIA GPU) support...")
+        elif gpu:
+            logger.warning("GPU requested but no MPS or CUDA backend detected. Falling back to CPU.")
+    except ImportError:
+        pass
+
     logger.info(
         f"Running Cellpose ({model_type}), "
-        f"diameter={'auto' if diameter is None else diameter}"
+        f"diameter={'auto' if diameter is None else diameter}, gpu={gpu}"
     )
 
     # Cellpose 4 removed models.Cellpose → use models.CellposeModel
-    # Note: CellposeModel is available in CP3 as well.
     model = models.CellposeModel(model_type=model_type, gpu=gpu)
 
     # ---- Build eval kwargs ----
