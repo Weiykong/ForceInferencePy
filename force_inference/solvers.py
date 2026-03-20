@@ -25,10 +25,22 @@ def solve_bayesian(tissue: Tissue,
 
     Args:
         tissue: Tissue object with topology
-        mu: Regularization parameter. If None or array, scans for optimal value.
+        mu: Regularization parameter (scalar or 1-D array of values to scan).
+            If None, a log-spaced range is scanned automatically.
+            **Do not pass a label image here** — labels are read from
+            ``tissue.labels`` which is set during topology extraction.
         exclude_border_edges: If True, excludes edges connected to artificial
                               boundary vertices (recommended for cleaner results)
     """
+    # Guard: mu must be a scalar, 1-D array, or None — not a 2-D image array.
+    if mu is not None and isinstance(mu, np.ndarray) and mu.ndim > 1:
+        raise ValueError(
+            "solve_bayesian() received a 2-D array as `mu`. "
+            "The API no longer takes a label image as the second positional "
+            "argument — labels are read from tissue.labels automatically. "
+            "Call: solve_bayesian(tissue) or solve_bayesian(tissue, mu=0.01)"
+        )
+
     matrices = _build_bayesian_matrices(tissue, exclude_border_edges=exclude_border_edges)
     if matrices is None:
         return None
@@ -102,36 +114,33 @@ def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
     H_img, W_img = tissue.labels.shape
     margin = 5
 
-    # Identify border vertices
+    # Identify border vertices (vertices within `margin` pixels of any image edge)
     is_border_v = (V[:, 0] < margin) | (V[:, 0] > W_img - margin) | \
                   (V[:, 1] < margin) | (V[:, 1] > H_img - margin)
 
-    # Identify border cells (cells that have any vertex on the border)
-    border_cells = set([0])  # Background is always "border"
-    for c_idx, verts in enumerate(C_v):
-        cell_label = c_idx + 1
-        for v in verts:
-            if v < len(is_border_v) and is_border_v[v]:
-                border_cells.add(cell_label)
-                break
-
-    # Identify which edges are "real interior" edges
+    # Identify which edges are "real interior" edges.
+    #
+    # Previous logic excluded ALL edges whose adjacent cell touched the image
+    # margin (border_cells).  This was overly conservative: a border cell can
+    # share an edge with an interior cell at a fully-interior vertex, and the
+    # force balance at that vertex IS complete — it should contribute an
+    # equation to the system.
+    #
+    # Correct criterion: exclude only edges where at least one endpoint vertex
+    # is on the image margin.  The "fully_interior_v" check below then ensures
+    # we only build force-balance equations at vertices where every incident
+    # edge is included, so the system remains consistent.
     if exclude_border_edges:
-        is_real_edge = []
-        for i, (v1, v2) in enumerate(E):
-            # Edge must have both vertices interior
-            verts_ok = (not is_border_v[v1]) and (not is_border_v[v2])
-            # AND neither adjacent cell is a border cell
-            c1, c2 = E_cells[i]
-            cells_ok = (c1 not in border_cells) and (c2 not in border_cells)
-            is_real_edge.append(verts_ok and cells_ok)
+        is_real_edge = np.array([
+            (not is_border_v[v1]) and (not is_border_v[v2])
+            for v1, v2 in E
+        ])
 
-        is_real_edge = np.array(is_real_edge)
         real_edge_indices = np.where(is_real_edge)[0]
         real_edge_set = set(real_edge_indices)
         e_map = {old: new for new, old in enumerate(real_edge_indices)}
         n_edges = len(real_edge_indices)
-        logger.info(f"Using {n_edges}/{len(E)} interior edges (excluding border cell edges)")
+        logger.info(f"Using {n_edges}/{len(E)} interior edges (excluding border-vertex edges)")
 
         # CRITICAL: Only balance forces at vertices where ALL incident edges are included
         # Build vertex -> incident edges mapping
@@ -369,12 +378,24 @@ def solve_laplace(tissue: Tissue,
     rows_p, cols_p, data_p, b_p = [], [], [], []
     eq_idx = 0
     
+    is_synthetic = (
+        tissue.E_synthetic
+        if tissue.E_synthetic is not None
+        else np.zeros(len(tissue.E), dtype=bool)
+    )
+
     for i in range(len(tissue.E)):
+        # Skip synthetic short edges created by split_four_way: their kappa is
+        # 0 by construction (only 2 pixel path), so including them would
+        # incorrectly force P[c1] - P[c2] = 0 across the split junction.
+        if is_synthetic[i]:
+            continue
+
         c1, c2 = tissue.E_cells[i]
         kappa = tissue.E_curvature[i]
         T_val = inferred_tensions[i]
         laplace_val = 2.0 * T_val * kappa
-        
+
         if c1 in c_map:
             rows_p.append(eq_idx)
             cols_p.append(c_map[c1])
@@ -383,7 +404,7 @@ def solve_laplace(tissue: Tissue,
             rows_p.append(eq_idx)
             cols_p.append(c_map[c2])
             data_p.append(-1.0)
-            
+
         b_p.append(laplace_val)
         eq_idx += 1
 

@@ -73,7 +73,7 @@ def segment_grayscale(img_path: str,
     # 5. Dust Removal (The "Clean" step)
     # Remove connected components smaller than min_cell_size
     # Ensure boolean input to avoid skimage warning when only one marker label is present.
-    markers_clean = morphology.remove_small_objects(markers_mask.astype(bool), max_size=min_cell_size)
+    markers_clean = morphology.remove_small_objects(markers_mask.astype(bool))# max_size=min_cell_size)
     
     # Label the markers (seeds for watershed)
     markers = measure.label(markers_clean)

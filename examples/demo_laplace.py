@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import tifffile
-from force_inference.topology_label import extract_topology_label
+from force_inference.split_four_way import extract_and_split
 from force_inference import geometry, segmentation, solvers, visualization
 
 
@@ -24,7 +24,7 @@ def _load_membrane_binary(filename):
     return membrane_binary
 
 
-def run_laplace_demo(filename="../data/example.tif"):
+def run_laplace_demo(filename="./data/test.tif", split_length=4.0):
     if not os.path.exists(filename):
         print(f"File {filename} not found.")
         return
@@ -34,12 +34,14 @@ def run_laplace_demo(filename="../data/example.tif"):
         filename, h_depth=2.0, min_cell_size=5
     )
 
-    # 2. Extract topology (label-driven, full-Voronoi pipeline)
-    print("Extracting topology...")
-    tissue = extract_topology_label(
+    # 2. Extract topology and split 4-way junctions before curvature fitting
+    print("Extracting topology and splitting high-degree junctions...")
+    tissue = extract_and_split(
         labels,
+        split_length=split_length,
+        min_edge_len=1,
         use_skeleton_geometry=False,  # don't snap to original skeleton
-        collapse_stubs=True,
+        collapse_stubs=False,
         collapse_tiny_twins=False,
     )
     if tissue is None:

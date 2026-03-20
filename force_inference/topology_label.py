@@ -168,57 +168,109 @@ def extract_topology_label(
     logger.info("Full Voronoi label expansion applied")
 
     # ------------------------------------------------------------------ #
-    # 1.  Classify boundary pixels: VERTEX vs EDGE                        #
+    # 1-3.  Detect vertices and build edges                               #
     # ------------------------------------------------------------------ #
-    # Use 3×3 window (half_window=1) — the full Voronoi ensures boundaries
-    # are thin (1-pixel-wide), so no larger window is needed.
-    vertex_mask, edge_mask, edge_pair_map = _classify_boundary_pixels(
-        labels_expanded, half_window=1
+    # Primary path: corner-based classification.  This is more robust for
+    # thick or blurry membranes because each inter-pixel corner always sees
+    # a local 2x2 cell configuration after Voronoi fill.
+    vertex_corner_mask, edge_corner_map = _classify_boundary_corners(
+        labels_expanded
     )
-    n_vpx = int(np.sum(vertex_mask))
-    n_epx = int(np.sum(edge_mask))
-    logger.info(f"Boundary pixels: {n_vpx} vertex, {n_epx} edge")
-
-    if n_vpx == 0:
-        logger.warning("No vertex pixels found.")
-        return None
-
-    # ------------------------------------------------------------------ #
-    # 2.  Cluster VERTEX pixels → vertices                                #
-    # ------------------------------------------------------------------ #
-    vertices, vertex_cell_sets = _cluster_vertex_pixels(
-        vertex_mask, labels_expanded, vertex_cluster_r
-    )
-    logger.info(f"Vertices: {len(vertices)}")
-
-    if len(vertices) < 2:
-        logger.warning("Fewer than 2 vertices found.")
-        return None
-
-    # Optional: snap vertices to skeleton for sub-pixel accuracy
-    if use_skeleton_geometry:
-        boundary = _labels_to_boundary(labels_proc)
-        skel = morphology.skeletonize(boundary)
-        vertices = _snap_to_skeleton(vertices, skel)
-
-    # Build vertex-pixel lookup for edge connectivity
-    vertex_pixel_map = _build_vertex_pixel_map(
-        vertex_mask, labels_expanded, vertices, vertex_cell_sets
+    n_vcorners = int(np.sum(vertex_corner_mask))
+    n_ecorners = int(np.sum(edge_corner_map > 0))
+    logger.info(
+        f"Boundary corners: {n_vcorners} vertex, {n_ecorners} edge"
     )
 
-    # ------------------------------------------------------------------ #
-    # 3.  Build edges from EDGE pixels                                    #
-    # ------------------------------------------------------------------ #
-    result = _build_edges_from_labels(
-        edge_mask, edge_pair_map, vertex_mask, vertex_pixel_map,
-        vertices, vertex_cell_sets, labels_expanded, min_edge_len
-    )
-    edges_list = result['edges']
-    edges_cells = result['cells']
-    edges_pixels = result['pixels']
-    vertices = result['vertices']
-    vertex_cell_sets = result['vertex_cell_sets']
-    logger.info(f"Edges: {len(edges_list)}")
+    edges_list = []
+    edges_cells = []
+    edges_pixels = []
+    vertices = np.zeros((0, 2), dtype=float)
+    vertex_cell_sets: List[Set[int]] = []
+
+    if n_vcorners > 0:
+        vertices, vertex_cell_sets, corner_to_vid = _cluster_vertex_corners(
+            vertex_corner_mask, labels_expanded
+        )
+        logger.info(f"Corner vertices: {len(vertices)}")
+
+        if len(vertices) >= 2:
+            if use_skeleton_geometry:
+                boundary = _labels_to_boundary(labels_proc)
+                skel = morphology.skeletonize(boundary)
+                vertices = _snap_to_skeleton(vertices, skel)
+
+            # Compute adaptive search radii from typical cell size.
+            # Average cell diameter ≈ 2 * sqrt(cell_area / π).
+            _n_cells = max(1, len(np.unique(labels_proc)) - 1)
+            _avg_cell_r = np.sqrt(H * W / (_n_cells * np.pi))
+            # Radii: large enough to catch long edges but capped at 1.5× the
+            # average cell radius to avoid connecting wrong vertex pairs.
+            _fallback_r = float(np.clip(_avg_cell_r * 1.5, 20.0, 80.0))
+            _recovery_r = float(np.clip(_avg_cell_r * 1.5, 20.0, 80.0))
+
+            result = _build_edges_from_corners(
+                edge_corner_map,
+                vertex_corner_mask,
+                corner_to_vid,
+                vertices,
+                vertex_cell_sets,
+                labels_expanded,
+                min_edge_len,
+                len(vertices),
+                fallback_radius=_fallback_r,
+                recovery_radius=_recovery_r,
+            )
+            edges_list = result['edges']
+            edges_cells = result['cells']
+            edges_pixels = result['pixels']
+            vertices = result['vertices']
+            vertex_cell_sets = result['vertex_cell_sets']
+            logger.info(f"Corner edges: {len(edges_list)}")
+
+    # Fallback: legacy pixel-window detector.
+    if len(edges_list) == 0:
+        logger.info("Corner detector insufficient, falling back to pixel detector")
+
+        vertex_mask, edge_mask, edge_pair_map = _classify_boundary_pixels(
+            labels_expanded, half_window=effective_window
+        )
+        n_vpx = int(np.sum(vertex_mask))
+        n_epx = int(np.sum(edge_mask))
+        logger.info(f"Boundary pixels: {n_vpx} vertex, {n_epx} edge")
+
+        if n_vpx == 0:
+            logger.warning("No vertex pixels found.")
+            return None
+
+        vertices, vertex_cell_sets = _cluster_vertex_pixels(
+            vertex_mask, labels_expanded, vertex_cluster_r
+        )
+        logger.info(f"Pixel vertices: {len(vertices)}")
+
+        if len(vertices) < 2:
+            logger.warning("Fewer than 2 vertices found.")
+            return None
+
+        if use_skeleton_geometry:
+            boundary = _labels_to_boundary(labels_proc)
+            skel = morphology.skeletonize(boundary)
+            vertices = _snap_to_skeleton(vertices, skel)
+
+        vertex_pixel_map = _build_vertex_pixel_map(
+            vertex_mask, labels_expanded, vertices, vertex_cell_sets
+        )
+
+        result = _build_edges_from_labels(
+            edge_mask, edge_pair_map, vertex_mask, vertex_pixel_map,
+            vertices, vertex_cell_sets, labels_expanded, min_edge_len
+        )
+        edges_list = result['edges']
+        edges_cells = result['cells']
+        edges_pixels = result['pixels']
+        vertices = result['vertices']
+        vertex_cell_sets = result['vertex_cell_sets']
+        logger.info(f"Pixel edges: {len(edges_list)}")
 
     if len(edges_list) == 0:
         logger.warning("No edges found.")
@@ -657,6 +709,62 @@ def _cluster_vertex_corners(
     return verts_arr, vertex_cell_sets, corner_to_vid
 
 
+def _build_boundary_pixel_map(
+    labels: np.ndarray,
+) -> Dict[Tuple[int, int], np.ndarray]:
+    """Build a mapping from every adjacent cell pair to boundary pixel (x,y) coords.
+
+    Scans the label image once (O(H×W)) to collect all 4-adjacent pixel pairs
+    where the two pixels belong to different cells.  Far cheaper than calling
+    a per-pair function inside a loop.
+
+    Returns
+    -------
+    dict mapping (min_cell, max_cell) → float array of shape (N, 2) with
+    (x, y) = (col + 0.5, row + 0.5) half-pixel image coordinates.
+    """
+    H, W = labels.shape
+    pair_map: Dict[Tuple[int, int], List] = {}
+
+    def _add(r1: int, c1: int, r2: int, c2: int) -> None:
+        a, b = int(labels[r1, c1]), int(labels[r2, c2])
+        if a == b or a == 0 or b == 0:
+            return
+        key = (min(a, b), max(a, b))
+        if key not in pair_map:
+            pair_map[key] = []
+        # Both pixels straddle the boundary — include both positions
+        pair_map[key].append((c1 + 0.5, r1 + 0.5))
+        pair_map[key].append((c2 + 0.5, r2 + 0.5))
+
+    # Horizontal neighbours
+    hy, hx = np.where(labels[:, :-1] != labels[:, 1:])
+    for r, c in zip(hy.tolist(), hx.tolist()):
+        _add(r, c, r, c + 1)
+
+    # Vertical neighbours
+    vy, vx = np.where(labels[:-1, :] != labels[1:, :])
+    for r, c in zip(vy.tolist(), vx.tolist()):
+        _add(r, c, r + 1, c)
+
+    return {k: np.array(v, dtype=float) for k, v in pair_map.items()}
+
+
+def _boundary_pixels(
+    labels: np.ndarray,
+    c1: int,
+    c2: int,
+) -> Optional[np.ndarray]:
+    """Return (x, y) pixel positions along the shared boundary of cells c1/c2.
+
+    Thin wrapper kept for backward compatibility; builds a full map each call
+    so it is *slow* if called in a loop — use _build_boundary_pixel_map instead.
+    """
+    key = (min(c1, c2), max(c1, c2))
+    bmap = _build_boundary_pixel_map(labels)
+    return bmap.get(key, None)
+
+
 def _build_edges_from_corners(
     edge_corner_map: np.ndarray,
     vertex_corner_mask: np.ndarray,
@@ -666,6 +774,8 @@ def _build_edges_from_corners(
     labels: np.ndarray,
     min_edge_len: int,
     n_original_vertices: int,
+    fallback_radius: float = 40.0,
+    recovery_radius: float = 40.0,
 ) -> Dict:
     """
     Build edge list from corner-classified boundary positions.
@@ -797,7 +907,6 @@ def _build_edges_from_corners(
                             edges_pixels.append(pts)
                 else:
                     # Fallback: find nearest original vertex to far end
-                    FALLBACK_RADIUS = 20.0  # px (half-pixel units)
                     known_v = touching_list[0]
                     known_pos = vertices[known_v, :2]
                     comp_coords = np.column_stack(
@@ -816,19 +925,95 @@ def _build_edges_from_corners(
                         )
                         dists_to_far[known_v] = np.inf
                         nearest_v = int(np.argmin(dists_to_far))
-                        if dists_to_far[nearest_v] <= FALLBACK_RADIUS:
+                        if dists_to_far[nearest_v] <= fallback_radius:
                             key = (min(known_v, nearest_v),
                                    max(known_v, nearest_v), c1, c2)
                             if key not in seen_keys:
                                 seen_keys.add(key)
                                 edges_list.append([known_v, nearest_v])
                                 edges_cells.append([c1, c2])
+                                # The corner-pixel set (pts) for a fallback
+                                # edge is entirely clustered at known_v —
                                 edges_pixels.append(pts)
                                 logger.debug(
                                     f"Corner fallback: pair ({c1},{c2}) "
                                     f"v{known_v}→v{nearest_v} "
                                     f"({dists_to_far[nearest_v]:.1f} px)"
                                 )
+
+    # ---------------------------------------------------------------- #
+    # Vertex-only edge recovery for tiny contacts                       #
+    # ---------------------------------------------------------------- #
+    # Some cell pairs touch only at a single pixel/corner contact. In
+    # that case the corner classifier may never emit an EDGE corner for
+    # the pair, so the main loop above never sees it. Recover these by
+    # connecting the nearest two vertices that both contain the pair.
+    pair_to_vids: Dict[Tuple[int, int], List[int]] = {}
+    for vid in range(n_original_vertices):
+        cells_v = sorted(vertex_cell_sets[vid])
+        for ci in range(len(cells_v)):
+            for cj in range(ci + 1, len(cells_v)):
+                pair_to_vids.setdefault(
+                    (cells_v[ci], cells_v[cj]), []
+                ).append(vid)
+
+    vertex_edge_pairs: Dict[int, Set[Tuple[int, int]]] = {
+        vid: set() for vid in range(n_original_vertices)
+    }
+    for eidx, (v1, v2) in enumerate(edges_list):
+        c_pair = (edges_cells[eidx][0], edges_cells[eidx][1])
+        if v1 < n_original_vertices:
+            vertex_edge_pairs[v1].add(c_pair)
+        if v2 < n_original_vertices:
+            vertex_edge_pairs[v2].add(c_pair)
+
+    n_recovered = 0
+    for vid in range(n_original_vertices):
+        cells_v = sorted(vertex_cell_sets[vid])
+        for ci in range(len(cells_v)):
+            for cj in range(ci + 1, len(cells_v)):
+                c1, c2 = cells_v[ci], cells_v[cj]
+                if (c1, c2) in vertex_edge_pairs[vid]:
+                    continue
+
+                candidates = pair_to_vids.get((c1, c2), [])
+                best_other = -1
+                best_dist = float("inf")
+                for other_vid in candidates:
+                    if other_vid == vid:
+                        continue
+                    d = np.linalg.norm(
+                        vertices[vid, :2] - vertices[other_vid, :2]
+                    )
+                    if d < best_dist:
+                        best_dist = d
+                        best_other = other_vid
+
+                if best_other < 0 or best_dist > recovery_radius:
+                    continue
+
+                key = (min(vid, best_other), max(vid, best_other), c1, c2)
+                if key in seen_keys:
+                    continue
+
+                seen_keys.add(key)
+                edges_list.append([vid, best_other])
+                edges_cells.append([c1, c2])
+                edges_pixels.append(np.array([
+                    [vertices[vid, 0], vertices[vid, 1]],
+                    [vertices[best_other, 0], vertices[best_other, 1]],
+                ]))
+                n_recovered += 1
+
+                vertex_edge_pairs[vid].add((c1, c2))
+                if best_other < n_original_vertices:
+                    vertex_edge_pairs[best_other].add((c1, c2))
+
+    if n_recovered > 0:
+        logger.info(
+            f"Corner vertex-only recovery: {n_recovered} edges added "
+            f"for pairs with no EDGE corners"
+        )
 
     return {
         'edges': edges_list,
@@ -1332,6 +1517,8 @@ def _build_edges_from_labels(
                                 seen_edge_keys.add(key)
                                 edges_list.append([known_v, nearest_v])
                                 edges_cells.append([c1, c2])
+                                # pts holds only boundary pixels near
+                                # known_v; the second vertex was found by
                                 edges_pixels.append(pts)
                                 logger.debug(
                                     f"Fallback edge recovery: pair ({c1},{c2})"

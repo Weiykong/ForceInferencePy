@@ -198,64 +198,83 @@ def compute_curvature(tissue: Tissue) -> Tissue:
     return tissue
 
 def _trace_and_measure_curvature(tissue: Tissue) -> Tissue:
-    """Standard pixel tracing + Circle Fitting."""
+    """Fit curvature on existing edge paths when available, else retrace."""
     logger.info("Tracing pixels and fitting circles...")
     labels = tissue.labels
     H, W = labels.shape
     curvature_list = []
-    
+
     # We store circle parameters for the tangent step: (cx, cy, radius, sign)
-    tissue.E_circles = [] 
-    tissue.E_pixels = []
-    
+    tissue.E_circles = []
+    existing_pixels = (
+        list(tissue.E_pixels)
+        if tissue.E_pixels is not None and len(tissue.E_pixels) == len(tissue.E)
+        else None
+    )
+    updated_pixels = []
+
     objects = measure.regionprops(labels)
     bboxes = {obj.label: obj.bbox for obj in objects}
-    
+
     for i, (v1, v2) in enumerate(tissue.E):
         c1, c2 = tissue.E_cells[i]
-        
-        # --- 1. Trace ---
+
+        points = None
+        if existing_pixels is not None:
+            pts_existing = np.asarray(existing_pixels[i], dtype=float)
+            if pts_existing.ndim == 2 and pts_existing.shape[0] >= 2:
+                points = pts_existing
+
+        # --- 1. Trace (fallback only when topology did not already supply a path) ---
         if c1 not in bboxes or c2 not in bboxes:
             curvature_list.append(0.0)
-            tissue.E_pixels.append(np.zeros((0,2)))
+            updated_pixels.append(
+                points if points is not None else np.zeros((0, 2))
+            )
             tissue.E_circles.append(None)
             continue
-            
-        # Sub-image bounds
-        b1, b2 = bboxes[c1], bboxes[c2]
-        min_r = max(0, min(b1[0], b2[0]) - 2)
-        max_r = min(H, max(b1[2], b2[2]) + 2)
-        min_c = max(0, min(b1[1], b2[1]) - 2)
-        max_c = min(W, max(b1[3], b2[3]) + 2)
 
-        sub_lbl = labels[min_r:max_r, min_c:max_c]
-        m1 = (sub_lbl == c1)
-        m2 = (sub_lbl == c2)
-        boundary_mask = morphology.binary_dilation(m1, morphology.disk(1)) & m2
-        pts_y, pts_x = np.where(boundary_mask)
-        if len(pts_y) < 3:
+        if points is None:
+            # Sub-image bounds
+            b1, b2 = bboxes[c1], bboxes[c2]
+            min_r = max(0, min(b1[0], b2[0]) - 2)
+            max_r = min(H, max(b1[2], b2[2]) + 2)
+            min_c = max(0, min(b1[1], b2[1]) - 2)
+            max_c = min(W, max(b1[3], b2[3]) + 2)
+
+            sub_lbl = labels[min_r:max_r, min_c:max_c]
+            m1 = (sub_lbl == c1)
+            m2 = (sub_lbl == c2)
+            boundary_mask = morphology.dilation(m1, morphology.disk(1)) & m2
+            pts_y, pts_x = np.where(boundary_mask)
+            if len(pts_y) >= 2:
+                points = np.column_stack((pts_x + min_c, pts_y + min_r))
+
+        if points is None or len(points) < 3:
             curvature_list.append(0.0)
-            tissue.E_pixels.append(np.zeros((0,2)))
+            updated_pixels.append(
+                points if points is not None else np.zeros((0, 2))
+            )
             tissue.E_circles.append(None)
             continue
-            
-        points = np.column_stack((pts_x + min_c, pts_y + min_r))
-        tissue.E_pixels.append(points)
-        
+
+        updated_pixels.append(points)
+
         # --- 2. Fit Circle ---
         # Get exact parameters
         kappa, center, radius = _fit_circle_parameters_full(points)
-        
+
         # --- 3. Sign (Distance Method) ---
         if c1 > 0 and c1 <= len(tissue.C_centroids):
             cent = tissue.C_centroids[c1 - 1]
             sign = _get_curvature_sign_distance(points, cent)
         else:
             sign = 1.0
-            
+
         curvature_list.append(kappa * sign)
         tissue.E_circles.append({'center': center, 'radius': radius, 'sign': sign})
-        
+
+    tissue.E_pixels = updated_pixels
     tissue.E_curvature = np.array(curvature_list)
     return tissue
 
