@@ -1,14 +1,11 @@
 """
 Complete force inference pipeline using Cellpose segmentation.
 
-This replaces segment_grayscale with Cellpose for better membrane detection,
-then runs topology extraction → 4-way splitting → geometry → solver.
+This runs Cellpose segmentation → label-driven topology extraction →
+4-way splitting → geometry → solver.
 
 Usage:
-    python demo_cellpose_pipeline.py test.tif
-
-Requirements:
-    pip install cellpose scikit-image scipy numpy matplotlib tifffile
+    python demo_cellpose_pipeline.py data/test.tif
 """
 
 import os
@@ -16,17 +13,18 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import logging
+import torch
+
+# Explicitly check for MPS
+if torch.backends.mps.is_available():
+    print("DEBUG: MPS is available in demo script")
 
 logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 logger = logging.getLogger("Pipeline")
 
-# Force inference modules (adjust import path as needed)
+from force_inference import geometry, segmentation, solvers
 from force_inference.topology_label import extract_topology_label
-from force_inference import geometry, solvers
-
-# New modules
-from segmentation_cellpose import segment_cellpose
-from split_four_way import split_high_degree_vertices
+from force_inference.split_four_way import split_high_degree_vertices
 
 
 def run_pipeline(
@@ -49,7 +47,7 @@ def run_pipeline(
 
     Args:
         filename:            Path to membrane image.
-        model_type:          Cellpose model ("cyto3", "cyto2", "cyto").
+        model_type:          Cellpose model ("cyto3", "cpsam", "cyto2").
         diameter:            Cell diameter (None = auto).
         cellprob_threshold:  Lower → catches more faint cells (-2 to 0).
         flow_threshold:      Higher → more permissive (0.4 to 0.8).
@@ -64,12 +62,13 @@ def run_pipeline(
 
     # ---- 1. Segmentation ----
     logger.info("Step 1: Cellpose segmentation...")
-    labels, gray = segment_cellpose(
+    labels, gray = segmentation.segment_cellpose(
         filename,
         model_type=model_type,
         diameter=diameter,
         cellprob_threshold=cellprob_threshold,
         flow_threshold=flow_threshold,
+        gpu=True,
     )
     logger.info(f"  → {labels.max()} cells")
 
@@ -191,7 +190,7 @@ TUNING_GUIDE = """
 ║  Model choice:                                                   ║
 ║    • cyto3: best overall (recommended)                           ║
 ║    • cyto2: slightly older, sometimes better on specific images  ║
-║    • cyto:  original, less accurate but faster                   ║
+║    • cpsam: best general model in Cellpose 4                     ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 """
