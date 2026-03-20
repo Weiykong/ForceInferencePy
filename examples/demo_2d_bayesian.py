@@ -2,12 +2,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import tifffile
+import argparse
 
 from force_inference import segmentation, solvers, visualization
 from force_inference.topology_label import extract_topology_label
 
-def run_demo():
-    filename = '../data/example.tif'
+def run_demo(filename, method="cellpose"):
     if not os.path.exists(filename):
         print(f"File {filename} not found.")
         return
@@ -27,9 +27,15 @@ def run_demo():
     print(f"Image: {raw.shape}, membrane px: {np.sum(membrane_binary)}")
 
     # 2. Segment (for visualization background + pressures)
-    print("Segmenting image...")
-    labels, img_smooth = segmentation.segment_grayscale(
-        filename, h_depth=2.0, min_cell_size=5)
+    print(f"Segmenting image using {method}...")
+    if method == "cellpose":
+        try:
+            labels, img_smooth = segmentation.segment_cellpose(filename, model_type="cyto3")
+        except ImportError:
+            print("Cellpose not found, falling back to grayscale.")
+            labels, img_smooth = segmentation.segment_grayscale(filename)
+    else:
+        labels, img_smooth = segmentation.segment_grayscale(filename)
 
     # 3. Extract topology from label map
     print("Extracting topology...")
@@ -46,17 +52,9 @@ def run_demo():
         print("No inner vertices found.")
         return
  
-    if tissue is None:
-        print("Topology extraction failed.")
-        return
-
     print(f"  V={len(tissue.V)} ({tissue.num_inner_vertices} inner + "
           f"{len(tissue.V) - tissue.num_inner_vertices} border), "
           f"E={len(tissue.E)}")
-
-    if tissue.num_inner_vertices == 0:
-        print("No inner vertices — cannot solve.")
-        return
 
     # 4. Solve
     print("Scanning for optimal mu (Bayesian)...")
@@ -103,4 +101,10 @@ def run_demo():
 
 
 if __name__ == "__main__":
-    run_demo()
+    parser = argparse.ArgumentParser(description="2D Bayesian Force Inference Demo")
+    parser.add_argument("--filename", type=str, default="../data/example.tif", help="Path to TIF image")
+    parser.add_argument("--method", type=str, default="cellpose", choices=["cellpose", "grayscale"], 
+                        help="Segmentation method (default: cellpose)")
+    args = parser.parse_args()
+    
+    run_demo(args.filename, args.method)

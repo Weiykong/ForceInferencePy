@@ -2,14 +2,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 import logging
 import os
+import argparse
 
 from force_inference import segmentation, topology, geometry, solvers
 
 logging.basicConfig(level=logging.INFO)
 
-def run_comparison_demo(img_path='data/test_image.tif'):
+def run_comparison_demo(img_path='data/example.tif', method="cellpose"):
+    if not os.path.exists(img_path):
+        print(f"File {img_path} not found.")
+        return
+
     print(f"--- Loading {img_path} ---")
-    labels, _ = segmentation.segment_grayscale(img_path, h_depth=2.0, min_cell_size=50)
+    print(f"Segmenting image using {method}...")
+    if method == "cellpose":
+        try:
+            labels, _ = segmentation.segment_cellpose(img_path, model_type="cyto3")
+        except ImportError:
+            print("Cellpose not found, falling back to grayscale.")
+            labels, _ = segmentation.segment_grayscale(img_path, h_depth=2.0, min_cell_size=50)
+    else:
+        labels, _ = segmentation.segment_grayscale(img_path, h_depth=2.0, min_cell_size=50)
     
     # ---------------------------------------------------------
     # A. Run BAYESIAN Inference
@@ -181,7 +194,10 @@ def scatter_plot(ax, x, y, title):
 
 
 if __name__ == "__main__":
-    if not os.path.exists('data/example.tif'):
-        print("Please provide 'data/example.tif'")
-    else:
-        run_comparison_demo('data/example.tif')
+    parser = argparse.ArgumentParser(description="Method Comparison Demo")
+    parser.add_argument("--filename", type=str, default="data/example.tif", help="Path to TIF image")
+    parser.add_argument("--method", type=str, default="cellpose", choices=["cellpose", "grayscale"], 
+                        help="Segmentation method (default: cellpose)")
+    args = parser.parse_args()
+    
+    run_comparison_demo(args.filename, args.method)
