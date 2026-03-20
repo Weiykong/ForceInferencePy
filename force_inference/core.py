@@ -15,8 +15,9 @@ class Tissue:
     labels: np.ndarray        # The segmentation mask image
     
     # Optional fields for advanced features
-    E_pixels: Optional[List[np.ndarray]] = None  # Pixel paths for curvy edges
-    E_curvature: Optional[np.ndarray] = None     # Curvature values (kappa)
+    E_pixels: Optional[List[np.ndarray]] = None    # Pixel paths for curvy edges
+    E_curvature: Optional[np.ndarray] = None       # Curvature values (kappa)
+    E_synthetic: Optional[np.ndarray] = None       # bool mask — True for edges added by split_four_way
     
     def to_2d(self) -> np.ndarray:
         """Return vertex coordinates as an (N, 2) array (x, y only).
