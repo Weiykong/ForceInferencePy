@@ -497,3 +497,8 @@ def plot_cell_stress_crosses(
             dx = vec[0] * length / 2.0
             dy = vec[1] * length / 2.0
             ax.plot([cx - dx, cx + dx], [cy - dy, cy + dy], color=color, lw=1.2, alpha=0.8)
+
+    # Keep overlays aligned to image pixel coordinates after line plotting.
+    if H is not None and W is not None:
+        ax.set_xlim(-0.5, W - 0.5)
+        ax.set_ylim(H - 0.5, -0.5)
