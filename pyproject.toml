@@ -4,17 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "force_inference"
-version = "0.1.0"
+version = "0.2.0"
 description = "A robust Python package for force inference in 2D and 2.5D tissues."
 readme = "README.md"
 authors = [
-    {name = "Wei-Yuan Kong", email = "weiyuankong@example.com"}
+    {name = "Wei-Yuan Kong", email = "weiyuankong@gmail.com"}
 ]
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Image Processing",
 ]
 requires-python = ">=3.8"
 dependencies = [
