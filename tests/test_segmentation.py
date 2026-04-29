@@ -1,4 +1,5 @@
 """Tests for force_inference.segmentation — segment_grayscale and segment_cellpose."""
+import importlib.util
 import os
 import tempfile
 import numpy as np
@@ -7,6 +8,8 @@ from unittest.mock import MagicMock, patch
 from skimage import io as sk_io
 
 from force_inference.segmentation import segment_grayscale, segment_cellpose
+
+_cellpose_available = importlib.util.find_spec("cellpose") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -63,12 +66,13 @@ class TestSegmentGrayscale:
 # ---------------------------------------------------------------------------
 
 class TestSegmentCellpose:
+    @pytest.mark.skipif(not _cellpose_available, reason="cellpose not installed")
     def test_missing_file_raises(self):
-        # We mock cellpose.models to avoid import errors if not installed
-        with patch('cellpose.models.CellposeModel') as mock_model:
+        with patch('cellpose.models.CellposeModel'):
             with pytest.raises(FileNotFoundError):
                 segment_cellpose("/nonexistent/path/image.tif")
 
+    @pytest.mark.skipif(not _cellpose_available, reason="cellpose not installed")
     @patch('cellpose.models.CellposeModel')
     def test_mock_cellpose_run(self, mock_cp_model):
         # Setup mock

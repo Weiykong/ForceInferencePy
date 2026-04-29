@@ -1,6 +1,6 @@
 import numpy as np
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 @dataclass
 class Tissue:
@@ -33,6 +33,8 @@ class Tissue:
     E_pixels: Optional[List[np.ndarray]] = None
     E_curvature: Optional[np.ndarray] = None
     E_synthetic: Optional[np.ndarray] = None
+    E_tangents: Optional[np.ndarray] = None
+    E_circles: Optional[List[Optional[Dict[str, Any]]]] = None
 
     @property
     def n_vertices(self) -> int:
