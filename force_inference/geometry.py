@@ -100,7 +100,10 @@ def calculate_batchelor_stress(tissue: Tissue, result: ForceResult) -> ForceResu
             continue
 
         u = d / L
-        contrib = float(result.tensions[e_idx]) * L * np.outer(u, u)
+        t = float(result.tensions[e_idx])
+        if not np.isfinite(t):  # border edges excluded from solve carry nan
+            continue
+        contrib = t * L * np.outer(u, u)
 
         for lbl in tissue.E_cells[e_idx]:
             ci = int(lbl) - 1

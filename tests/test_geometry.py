@@ -170,3 +170,19 @@ class TestBatchelorStress:
         fr = ForceResult(tensions=np.array([]), pressures=np.array([]), residual=0.0)
         result = calculate_batchelor_stress(t, fr)
         assert result.stress_tensors.shape == (0, 2, 2)
+
+    def test_nan_tensions_do_not_corrupt_stress(self, minimal_tissue):
+        """Border edges carry nan tensions; stress tensors must remain finite."""
+        n_edges = len(minimal_tissue.E)
+        tensions = np.ones(n_edges, dtype=float)
+        tensions[0] = np.nan  # simulate a border edge excluded from solve
+        fr = ForceResult(
+            tensions=tensions,
+            pressures=np.zeros(len(minimal_tissue.C_v)),
+            residual=0.0,
+        )
+        result = calculate_batchelor_stress(minimal_tissue, fr)
+        assert result.stress_tensors is not None
+        assert np.all(np.isfinite(result.stress_tensors)), (
+            "NaN tension leaked into stress tensor"
+        )
