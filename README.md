@@ -1,5 +1,9 @@
 # ForceInferencePy
 
+[![CI](https://github.com/Weiykong/ForceInferencePy/actions/workflows/ci.yml/badge.svg)](https://github.com/Weiykong/ForceInferencePy/actions/workflows/ci.yml)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Robust force inference for epithelial tissues, from membrane images to cell-cell tensions, pressures, and stress summaries.
 
 The package is built around a **Cellpose-first segmentation path**, a **label-driven topology extractor** that avoids skeletonization artifacts, and solver pipelines for **Bayesian force inference**, **Young-Laplace inference on curved interfaces**, and **2.5D vertex height mapping**.
@@ -168,29 +172,46 @@ Current solver assembly uses the planar `(x, y)` geometry for force balance, whi
 
 ![2.5D support](docs/readme_assets/support_25d.png)
 
+## Quick Reference
+
+| Function | Module | Description |
+|---|---|---|
+| `segment_cellpose` | `segmentation` | Cellpose segmentation → label mask |
+| `segment_grayscale` | `segmentation` | Watershed fallback segmentation |
+| `extract_topology_label` | `topology_label` | Label-driven topology (recommended) |
+| `extract_topology` | `topology` | Skeleton-based topology (legacy) |
+| `split_high_degree_vertices` | `split_four_way` | Split 4-way+ junctions into 3-way |
+| `compute_curvature` | `geometry` | Trace edges, fit curvature, compute tangents |
+| `solve_bayesian` | `solvers` | Bayesian force inference (auto μ scan) |
+| `solve_laplace` | `solvers` | Young-Laplace curved-edge solver |
+| `calculate_batchelor_stress` | `geometry` | Per-cell 2×2 stress tensors |
+| `map_z_to_vertices` | `geometry` | Map Z-stack height to vertex coordinates |
+
+All public symbols are importable directly from `force_inference`:
+
+```python
+from force_inference import (
+    segment_cellpose, extract_topology_label, split_high_degree_vertices,
+    compute_curvature, solve_bayesian, calculate_batchelor_stress,
+)
+```
+
 ## End-to-End Example
 
 ```python
-from force_inference.segmentation import segment_cellpose
-from force_inference.topology_label import extract_topology_label
-from force_inference.split_four_way import split_high_degree_vertices
-from force_inference.geometry import compute_curvature, calculate_batchelor_stress
-from force_inference.solvers import solve_bayesian
+import force_inference as fi
 
-labels, gray = segment_cellpose("data/test.tif", model_type="cyto3", gpu=False)
+labels, _ = fi.segment_cellpose("data/test.tif", model_type="cyto3", gpu=False)
 
-tissue = extract_topology_label(
-    labels,
-    min_edge_len=1,
-    use_skeleton_geometry=False,
-    collapse_stubs=True,
-    collapse_tiny_twins=False,
-)
-tissue = split_high_degree_vertices(tissue, split_length=4.0)
-tissue = compute_curvature(tissue)
+tissue = fi.extract_topology_label(labels, min_edge_len=1, collapse_stubs=True)
+tissue = fi.split_high_degree_vertices(tissue, split_length=4.0)
+tissue = fi.compute_curvature(tissue)
 
-result = solve_bayesian(tissue, mu=1e-2)
-result = calculate_batchelor_stress(tissue, result)
+result = fi.solve_bayesian(tissue, mu=1e-2)
+result = fi.calculate_batchelor_stress(tissue, result)
+
+print(result.summary())
+print(f"Tissue: {tissue.n_cells} cells, {tissue.n_edges} edges")
 ```
 
 ## Examples
@@ -234,7 +255,11 @@ The asset script prefers Cellpose and falls back to grayscale segmentation if Ce
 ## Testing
 
 ```bash
+# Run the full test suite
 pytest tests/
+
+# With coverage report
+pytest tests/ --cov=force_inference --cov-report=term-missing
 ```
 
 ## License
