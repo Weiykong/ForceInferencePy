@@ -19,7 +19,8 @@ class BayesianScanResult:
 
 def solve_bayesian(tissue: Tissue,
                    mu: Union[float, List[float], np.ndarray] = None,
-                   exclude_border_edges: bool = True) -> Optional[Union[ForceResult, BayesianScanResult]]:
+                   exclude_border_edges: bool = True,
+                   border_margin: int = 5) -> Optional[Union[ForceResult, BayesianScanResult]]:
     """Solve for tensions and pressures using Bayesian force inference.
 
     Minimises ``‖A x‖² + μ ‖x − 1‖²`` where x concatenates edge tensions
@@ -43,8 +44,12 @@ def solve_bayesian(tissue: Tissue,
             **Do not pass a label image here.**  Labels are read from
             ``tissue.labels`` automatically.
         exclude_border_edges: Exclude edges whose endpoints lie within
-            5 px of the image margin (recommended; avoids incomplete
-            force-balance equations at the boundary).
+            *border_margin* px of the image margin (recommended; avoids
+            incomplete force-balance equations at the boundary).
+        border_margin: Pixel distance from the image edge used to classify
+            vertices as border vertices.  Default is 5.  Increase for
+            high-resolution images where the membrane sits further from
+            the edge, or decrease for small synthetic images.
 
     Returns:
         :class:`BayesianScanResult` when *mu* is None or an array, or a
@@ -60,7 +65,8 @@ def solve_bayesian(tissue: Tissue,
             "Call: solve_bayesian(tissue) or solve_bayesian(tissue, mu=0.01)"
         )
 
-    matrices = _build_bayesian_matrices(tissue, exclude_border_edges=exclude_border_edges)
+    matrices = _build_bayesian_matrices(tissue, exclude_border_edges=exclude_border_edges,
+                                         border_margin=border_margin)
     if matrices is None:
         return None
     A, B, g, n_eq, n_vars, real_edge_indices = matrices
@@ -115,7 +121,8 @@ def solve_bayesian(tissue: Tissue,
             residuals=np.array(residuals)
         )
 
-def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
+def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True,
+                              border_margin: int = 5):
     """
     Build matrices for Bayesian inference.
 
@@ -131,7 +138,7 @@ def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
     if len(V) == 0:
         return None
     H_img, W_img = tissue.labels.shape
-    margin = 5
+    margin = int(border_margin)
 
     # Identify border vertices (vertices within `margin` pixels of any image edge)
     is_border_v = (V[:, 0] < margin) | (V[:, 0] > W_img - margin) | \
@@ -319,7 +326,8 @@ def solve_laplace(tissue: Tissue,
                   regularization: float = 1.0,
                   tension_val: float = 1.0,
                   detrend: bool = False,
-                  zero_center: bool = False) -> Optional[ForceResult]:
+                  zero_center: bool = False,
+                  border_margin: int = 5) -> Optional[ForceResult]:
     """Solve for tensions and pressures using Young-Laplace force balance.
 
     Treats all border cells as atmosphere (P=0) to prevent artificial
@@ -334,6 +342,9 @@ def solve_laplace(tissue: Tissue,
         tension_val: Prior mean for tensions (default 1.0).
         detrend: Unused; reserved for future pressure detrending.
         zero_center: Unused; reserved for future pressure centering.
+        border_margin: Pixel distance from the image edge used to
+            classify vertices as border (atmosphere) vertices.  Default
+            is 5.  Increase for high-resolution images.
 
     Returns:
         ForceResult with tensions and pressures, or None if the system
@@ -358,8 +369,8 @@ def solve_laplace(tissue: Tissue,
         return None
 
     H, W = tissue.labels.shape
-    margin = 5
-    
+    margin = int(border_margin)
+
     # --- 1. IDENTIFY BORDER CELLS (The Atmosphere) ---
     is_border_v = (tissue.V[:, 0] < margin) | (tissue.V[:, 0] > W - margin) | \
                   (tissue.V[:, 1] < margin) | (tissue.V[:, 1] > H - margin)
