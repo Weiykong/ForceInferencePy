@@ -20,17 +20,36 @@ class BayesianScanResult:
 def solve_bayesian(tissue: Tissue,
                    mu: Union[float, List[float], np.ndarray] = None,
                    exclude_border_edges: bool = True) -> Optional[Union[ForceResult, BayesianScanResult]]:
-    """
-    Bayesian force inference solver.
+    """Solve for tensions and pressures using Bayesian force inference.
+
+    Minimises ``‖A x‖² + μ ‖x − 1‖²`` where x concatenates edge tensions
+    and cell pressures, and A encodes force balance at interior vertices.
+
+    When *mu* is ``None`` (default) a log-spaced range is scanned and the
+    value maximising the marginalised log-evidence is selected automatically,
+    returning a :class:`BayesianScanResult`.  Pass a scalar *mu* to skip the
+    scan and get a :class:`ForceResult` directly.
 
     Args:
-        tissue: Tissue object with topology
-        mu: Regularization parameter (scalar or 1-D array of values to scan).
-            If None, a log-spaced range is scanned automatically.
-            **Do not pass a label image here** — labels are read from
-            ``tissue.labels`` which is set during topology extraction.
-        exclude_border_edges: If True, excludes edges connected to artificial
-                              boundary vertices (recommended for cleaner results)
+        tissue: Tissue object produced by ``extract_topology_label`` (or
+            ``extract_topology``).  Labels must be stored in
+            ``tissue.labels``.
+        mu: Regularization strength.
+
+            - ``None`` — auto-scan a log-spaced range and pick the best μ.
+            - scalar ``float`` — solve once with this μ value.
+            - 1-D array — scan this exact set of μ values.
+
+            **Do not pass a label image here.**  Labels are read from
+            ``tissue.labels`` automatically.
+        exclude_border_edges: Exclude edges whose endpoints lie within
+            5 px of the image margin (recommended; avoids incomplete
+            force-balance equations at the boundary).
+
+    Returns:
+        :class:`BayesianScanResult` when *mu* is None or an array, or a
+        :class:`ForceResult` when *mu* is a scalar.  Returns ``None`` if
+        the tissue has no interior vertices.
     """
     # Guard: mu must be a scalar, 1-D array, or None — not a 2-D image array.
     if mu is not None and isinstance(mu, np.ndarray) and mu.ndim > 1:
@@ -296,17 +315,46 @@ def _compute_log_evidence_approx(A, B, mu, result):
     E_prior = np.sum((real_tensions - 1.0)**2)
     return - (A.shape[0]/2.0) * np.log(E_data + mu*E_prior + 1e-12)
 
-def solve_laplace(tissue: Tissue, 
+def solve_laplace(tissue: Tissue,
                   regularization: float = 1.0,
                   tension_val: float = 1.0,
                   detrend: bool = False,
                   zero_center: bool = False) -> Optional[ForceResult]:
+    """Solve for tensions and pressures using Young-Laplace force balance.
+
+    Treats all border cells as atmosphere (P=0) to prevent artificial
+    pressure jumps across image boundaries.
+
+    ``compute_curvature(tissue)`` **must** be called before this function
+    to populate ``tissue.E_tangents`` and ``tissue.E_curvature``.
+
+    Args:
+        tissue: Tissue object with curvature already computed.
+        regularization: Tikhonov regularization weight for tension solve.
+        tension_val: Prior mean for tensions (default 1.0).
+        detrend: Unused; reserved for future pressure detrending.
+        zero_center: Unused; reserved for future pressure centering.
+
+    Returns:
+        ForceResult with tensions and pressures, or None if the system
+        is degenerate (fewer than 3 interior vertices).
+
+    Raises:
+        ValueError: If ``tissue.E_tangents`` or ``tissue.E_curvature``
+            are missing — call ``compute_curvature(tissue)`` first.
     """
-    Robust Solver that treats all Border Cells as 'Atmosphere' (P=0).
-    This prevents artificial pressure jumps across the stalks.
-    """
-    if not hasattr(tissue, 'E_tangents'):
-        logger.error("Tangents missing. Run geometry.compute_curvature() first.")
+    if not hasattr(tissue, 'E_tangents') or tissue.E_tangents is None:
+        raise ValueError(
+            "tissue.E_tangents is missing. "
+            "Call compute_curvature(tissue) before solve_laplace()."
+        )
+    if tissue.E_curvature is None:
+        raise ValueError(
+            "tissue.E_curvature is missing. "
+            "Call compute_curvature(tissue) before solve_laplace()."
+        )
+    if len(tissue.E) == 0:
+        logger.warning("solve_laplace: tissue has no edges, returning None.")
         return None
 
     H, W = tissue.labels.shape
