@@ -83,34 +83,44 @@ def calculate_batchelor_stress(tissue: Tissue, result: ForceResult) -> ForceResu
     areas = _compute_cell_areas(tissue)
     stresses = np.zeros((n_cells, 2, 2), dtype=float)
 
-    # Pressure term (pressures are stored label-indexed: label 1 -> index 0)
+    # Pressure term: vectorised diagonal subtraction
     pressures = getattr(result, "pressures", None)
     if pressures is not None:
         n_p = min(len(pressures), n_cells)
-        for ci in range(n_p):
-            stresses[ci] -= float(pressures[ci]) * np.eye(2)
+        p_vals = np.asarray(pressures[:n_p], dtype=float)
+        stresses[:n_p, 0, 0] -= p_vals
+        stresses[:n_p, 1, 1] -= p_vals
 
-    # Edge contribution: add to each neighboring cell.
-    for e_idx, (v1, v2) in enumerate(tissue.E):
-        p1 = Vxy[v1]
-        p2 = Vxy[v2]
-        d = p2 - p1
-        L = float(np.linalg.norm(d))
-        if L <= 1e-12:
-            continue
+    # Edge contribution — fully vectorised over edges.
+    # Steps: batch edge-vector math → outer products → scatter-add to cells.
+    E_arr = tissue.E                                     # (M, 2)
+    d_all = Vxy[E_arr[:, 1]] - Vxy[E_arr[:, 0]]        # (M, 2)
+    L_all = np.linalg.norm(d_all, axis=1)               # (M,)
+    t_all = np.asarray(result.tensions, dtype=float)     # (M,)
 
-        u = d / L
-        t = float(result.tensions[e_idx])
-        if not np.isfinite(t):  # border edges excluded from solve carry nan
-            continue
-        contrib = t * L * np.outer(u, u)
+    # Keep only edges with valid length and finite tension.
+    keep = (L_all > 1e-12) & np.isfinite(t_all)
+    if np.any(keep):
+        idx = np.where(keep)[0]
+        d_k = d_all[idx]
+        L_k = L_all[idx]
+        t_k = t_all[idx]
+        u_k = d_k / L_k[:, None]                        # (K, 2)
 
-        for lbl in tissue.E_cells[e_idx]:
-            ci = int(lbl) - 1
-            if ci < 0 or ci >= n_cells:
+        # (K, 2, 2) outer products, weighted by tension * length
+        contribs = (t_k * L_k)[:, None, None] * np.einsum('ki,kj->kij', u_k, u_k)
+
+        # Scatter-add: each edge contributes to both neighbour cells.
+        E_cells = tissue.E_cells
+        for side in range(2):
+            ci_arr = E_cells[idx, side].astype(int) - 1
+            valid = (ci_arr >= 0) & (ci_arr < n_cells)
+            if not np.any(valid):
                 continue
-            A = max(float(areas[ci]), 1e-12)
-            stresses[ci] += contrib / A
+            vi = np.where(valid)[0]
+            ci_v = ci_arr[vi]
+            A_v = np.maximum(areas[ci_v], 1e-12)
+            np.add.at(stresses, ci_v, contribs[vi] / A_v[:, None, None])
 
     result.stress_tensors = stresses
     return result
