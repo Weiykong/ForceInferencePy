@@ -1,5 +1,9 @@
 # ForceInferencePy
 
+[![CI](https://github.com/Weiykong/ForceInferencePy/actions/workflows/tests.yml/badge.svg)](https://github.com/Weiykong/ForceInferencePy/actions/workflows/tests.yml)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Robust force inference for epithelial tissues, from membrane images to cell-cell tensions, pressures, and stress summaries.
 
 The package is built around a **Cellpose-first segmentation path**, a **label-driven topology extractor** that avoids skeletonization artifacts, and solver pipelines for **Bayesian force inference**, **Young-Laplace inference on curved interfaces**, and **2.5D vertex height mapping**.

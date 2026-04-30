@@ -83,31 +83,44 @@ def calculate_batchelor_stress(tissue: Tissue, result: ForceResult) -> ForceResu
     areas = _compute_cell_areas(tissue)
     stresses = np.zeros((n_cells, 2, 2), dtype=float)
 
-    # Pressure term (pressures are stored label-indexed: label 1 -> index 0)
+    # Pressure term: vectorised diagonal subtraction
     pressures = getattr(result, "pressures", None)
     if pressures is not None:
         n_p = min(len(pressures), n_cells)
-        for ci in range(n_p):
-            stresses[ci] -= float(pressures[ci]) * np.eye(2)
+        p_vals = np.asarray(pressures[:n_p], dtype=float)
+        stresses[:n_p, 0, 0] -= p_vals
+        stresses[:n_p, 1, 1] -= p_vals
 
-    # Edge contribution: add to each neighboring cell.
-    for e_idx, (v1, v2) in enumerate(tissue.E):
-        p1 = Vxy[v1]
-        p2 = Vxy[v2]
-        d = p2 - p1
-        L = float(np.linalg.norm(d))
-        if L <= 1e-12:
-            continue
+    # Edge contribution — fully vectorised over edges.
+    # Steps: batch edge-vector math → outer products → scatter-add to cells.
+    E_arr = tissue.E                                     # (M, 2)
+    d_all = Vxy[E_arr[:, 1]] - Vxy[E_arr[:, 0]]        # (M, 2)
+    L_all = np.linalg.norm(d_all, axis=1)               # (M,)
+    t_all = np.asarray(result.tensions, dtype=float)     # (M,)
 
-        u = d / L
-        contrib = float(result.tensions[e_idx]) * L * np.outer(u, u)
+    # Keep only edges with valid length and finite tension.
+    keep = (L_all > 1e-12) & np.isfinite(t_all)
+    if np.any(keep):
+        idx = np.where(keep)[0]
+        d_k = d_all[idx]
+        L_k = L_all[idx]
+        t_k = t_all[idx]
+        u_k = d_k / L_k[:, None]                        # (K, 2)
 
-        for lbl in tissue.E_cells[e_idx]:
-            ci = int(lbl) - 1
-            if ci < 0 or ci >= n_cells:
+        # (K, 2, 2) outer products, weighted by tension * length
+        contribs = (t_k * L_k)[:, None, None] * np.einsum('ki,kj->kij', u_k, u_k)
+
+        # Scatter-add: each edge contributes to both neighbour cells.
+        E_cells = tissue.E_cells
+        for side in range(2):
+            ci_arr = E_cells[idx, side].astype(int) - 1
+            valid = (ci_arr >= 0) & (ci_arr < n_cells)
+            if not np.any(valid):
                 continue
-            A = max(float(areas[ci]), 1e-12)
-            stresses[ci] += contrib / A
+            vi = np.where(valid)[0]
+            ci_v = ci_arr[vi]
+            A_v = np.maximum(areas[ci_v], 1e-12)
+            np.add.at(stresses, ci_v, contribs[vi] / A_v[:, None, None])
 
     result.stress_tensors = stresses
     return result
@@ -160,29 +173,39 @@ def interpolate_stress_to_grid(
     tree = cKDTree(pts)
     radius = max(2.0 * sigma, step)
 
-    for i in range(grid_x.shape[0]):
-        for j in range(grid_x.shape[1]):
-            q = np.array([grid_x[i, j], grid_y[i, j]])
-            qx = int(round(float(q[0])))
-            qy = int(round(float(q[1])))
-            if qx < 0 or qx >= W or qy < 0 or qy >= H:
-                continue
-            # Do not place coarse-grained stress on background/outside tissue.
-            if tissue.labels[qy, qx] == 0:
-                continue
-            idxs = tree.query_ball_point(q, r=radius)
-            if len(idxs) == 0:
-                continue
+    # Flatten grid to (N_pts, 2) and pre-filter to tissue-covered points only.
+    # This avoids one Python loop iteration per background grid cell and lets
+    # us call query_ball_point in a single batched call instead of once per pt.
+    flat_q = np.column_stack([grid_x.ravel(), grid_y.ravel()])
+    qx_idx = np.clip(np.round(flat_q[:, 0]).astype(int), 0, W - 1)
+    qy_idx = np.clip(np.round(flat_q[:, 1]).astype(int), 0, H - 1)
+    on_tissue = tissue.labels[qy_idx, qx_idx] != 0
 
-            neigh_pts = pts[idxs]
-            d2 = np.sum((neigh_pts - q) ** 2, axis=1)
-            w = np.exp(-0.5 * d2 / (sigma ** 2))
-            w_sum = float(np.sum(w))
-            if w_sum <= 1e-12:
-                continue
+    valid_flat_idx = np.where(on_tissue)[0]
+    if len(valid_flat_idx) == 0:
+        return (grid_x, grid_y), grid_tensors
 
-            neigh_tensors = vals[idxs]
-            grid_tensors[i, j] = np.tensordot(w, neigh_tensors, axes=(0, 0)) / w_sum
+    valid_pts = flat_q[valid_flat_idx]  # (K, 2)
+
+    # Single batched radius query — much faster than K individual calls.
+    neighbor_lists = tree.query_ball_point(valid_pts, r=radius)
+
+    flat_tensors = grid_tensors.reshape(-1, 2, 2)  # view into grid_tensors
+    inv_s2 = 0.5 / (sigma ** 2)
+
+    for k, idxs in enumerate(neighbor_lists):
+        if len(idxs) == 0:
+            continue
+        q = valid_pts[k]
+        neigh_pts = pts[idxs]
+        d2 = np.sum((neigh_pts - q) ** 2, axis=1)
+        w = np.exp(-d2 * inv_s2)
+        w_sum = float(w.sum())
+        if w_sum <= 1e-12:
+            continue
+        flat_tensors[valid_flat_idx[k]] = (
+            np.tensordot(w, vals[idxs], axes=(0, 0)) / w_sum
+        )
 
     return (grid_x, grid_y), grid_tensors
 
