@@ -155,7 +155,8 @@ def plot_tensions(ax: plt.Axes,
                   width: float = 2.0,
                   alpha: float = 1.0,
                   fix_zigzag: bool = True,
-                  show_nan_edges: bool = True) -> None:
+                  show_nan_edges: bool = True,
+                  show_colorbar: bool = True) -> None:
     """
     Plots the tissue edges colored by their inferred Tension.
 
@@ -287,7 +288,7 @@ def plot_tensions(ax: plt.Axes,
             linewidths=0,
         )
 
-    if not hasattr(ax, '_tension_colorbar_added'):
+    if show_colorbar and not hasattr(ax, '_tension_colorbar_added'):
         plt.colorbar(lc, ax=ax, label="Tension (normalized)")
         ax._tension_colorbar_added = True
 

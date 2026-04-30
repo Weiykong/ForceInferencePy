@@ -211,7 +211,7 @@ def _save_pipeline_overview(
         f"3. Label-driven topology\n{len(tissue.V)} vertices, {len(tissue.E)} edges"
     )
 
-    axes[1, 1].imshow(gray, cmap="gray", alpha=0.4)
+    axes[1, 1].imshow(_label_rgb(display_labels))
     visualization.plot_tensions(axes[1, 1], tissue, bayes, cmap="turbo", width=1.8)
     n_valid = int(np.sum(~np.isnan(bayes.tensions)))
     axes[1, 1].set_title(

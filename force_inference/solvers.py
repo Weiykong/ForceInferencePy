@@ -19,7 +19,8 @@ class BayesianScanResult:
 
 def solve_bayesian(tissue: Tissue,
                    mu: Union[float, List[float], np.ndarray] = None,
-                   exclude_border_edges: bool = True) -> Optional[Union[ForceResult, BayesianScanResult]]:
+                   exclude_border_edges: bool = True,
+                   border_margin: int = 5) -> Optional[Union[ForceResult, BayesianScanResult]]:
     """
     Bayesian force inference solver.
 
@@ -30,7 +31,14 @@ def solve_bayesian(tissue: Tissue,
             **Do not pass a label image here** — labels are read from
             ``tissue.labels`` which is set during topology extraction.
         exclude_border_edges: If True, excludes edges connected to artificial
-                              boundary vertices (recommended for cleaner results)
+                              boundary vertices (recommended for cleaner results).
+        border_margin: Distance in pixels from the image edge within which a
+                       vertex is classified as a border vertex and excluded from
+                       force balance.  The topology extractor uses 2 px; the
+                       default here (5 px) is intentionally more conservative
+                       to avoid artefacts from partially-visible cells at the
+                       image boundary.  Set equal to the topology margin (2) to
+                       include near-edge vertices in the force balance.
     """
     # Guard: mu must be a scalar, 1-D array, or None — not a 2-D image array.
     if mu is not None and isinstance(mu, np.ndarray) and mu.ndim > 1:
@@ -41,7 +49,8 @@ def solve_bayesian(tissue: Tissue,
             "Call: solve_bayesian(tissue) or solve_bayesian(tissue, mu=0.01)"
         )
 
-    matrices = _build_bayesian_matrices(tissue, exclude_border_edges=exclude_border_edges)
+    matrices = _build_bayesian_matrices(tissue, exclude_border_edges=exclude_border_edges,
+                                        border_margin=border_margin)
     if matrices is None:
         return None
     A, B, g, n_eq, n_vars, real_edge_indices = matrices
@@ -53,7 +62,7 @@ def solve_bayesian(tissue: Tissue,
     else:
         # Scan Range
         if mu is None:
-            mu_exponents = np.arange(-10.0, -5.1, 0.25) # 10^-3 to 10^3
+            mu_exponents = np.arange(-10.0, -5.1, 0.25)  # 10^-10 to 10^-5.25, 19 values
             mu_values = 10.0 ** mu_exponents
         else:
             mu_values = np.array(mu)
@@ -96,7 +105,8 @@ def solve_bayesian(tissue: Tissue,
             residuals=np.array(residuals)
         )
 
-def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
+def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True,
+                             border_margin: int = 5):
     """
     Build matrices for Bayesian inference.
 
@@ -104,6 +114,7 @@ def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
         tissue: Tissue object with topology
         exclude_border_edges: If True, completely excludes edges connected to
                               border vertices OR belonging to border cells
+        border_margin: Pixel distance from image edge for border-vertex classification.
     """
     V = tissue.V
     E = tissue.E
@@ -112,7 +123,7 @@ def _build_bayesian_matrices(tissue: Tissue, exclude_border_edges: bool = True):
     if len(V) == 0:
         return None
     H_img, W_img = tissue.labels.shape
-    margin = 5
+    margin = border_margin
 
     # Identify border vertices (vertices within `margin` pixels of any image edge)
     is_border_v = (V[:, 0] < margin) | (V[:, 0] > W_img - margin) | \
@@ -296,21 +307,37 @@ def _compute_log_evidence_approx(A, B, mu, result):
     E_prior = np.sum((real_tensions - 1.0)**2)
     return - (A.shape[0]/2.0) * np.log(E_data + mu*E_prior + 1e-12)
 
-def solve_laplace(tissue: Tissue, 
+def solve_laplace(tissue: Tissue,
                   regularization: float = 1.0,
                   tension_val: float = 1.0,
                   detrend: bool = False,
-                  zero_center: bool = False) -> Optional[ForceResult]:
+                  zero_center: bool = False,
+                  border_margin: int = 5) -> Optional[ForceResult]:
     """
-    Robust Solver that treats all Border Cells as 'Atmosphere' (P=0).
-    This prevents artificial pressure jumps across the stalks.
+    Young-Laplace solver: infers tensions from force balance at junctions,
+    then infers pressures via ΔP = T·κ (2-D Young-Laplace law).
+
+    Border cells (those touching the image margin) are treated as atmosphere
+    (P = 0) to prevent artefacts at the tissue boundary.
+
+    Args:
+        tissue: Tissue object; must have had ``geometry.compute_curvature()``
+                applied first.
+        regularization: Strength of the Tikhonov regularisation pulling
+                        tensions toward ``tension_val``.
+        tension_val: Prior target tension (default 1.0).
+        border_margin: Distance in pixels from the image edge within which a
+                       vertex is classified as belonging to the border.  Cells
+                       that own any such vertex are treated as atmosphere.
+                       Should match the value used in ``solve_bayesian`` for
+                       consistent comparisons (default 5 px).
     """
     if not hasattr(tissue, 'E_tangents'):
         logger.error("Tangents missing. Run geometry.compute_curvature() first.")
         return None
 
     H, W = tissue.labels.shape
-    margin = 5
+    margin = border_margin
     
     # --- 1. IDENTIFY BORDER CELLS (The Atmosphere) ---
     is_border_v = (tissue.V[:, 0] < margin) | (tissue.V[:, 0] > W - margin) | \
@@ -394,7 +421,10 @@ def solve_laplace(tissue: Tissue,
         c1, c2 = tissue.E_cells[i]
         kappa = tissue.E_curvature[i]
         T_val = inferred_tensions[i]
-        laplace_val = 2.0 * T_val * kappa
+        # Young-Laplace law for a 2-D interface: ΔP = T · κ
+        # (The 3-D spherical form ΔP = 2Tκ does NOT apply to a 2-D monolayer
+        # cross-section; that factor-of-2 overcounts the out-of-plane curvature.)
+        laplace_val = T_val * kappa
 
         if c1 in c_map:
             rows_p.append(eq_idx)
@@ -432,3 +462,305 @@ def solve_laplace(tissue: Tissue,
             full_P[c-1] = rel_P[idx]
             
     return ForceResult(tensions=inferred_tensions, pressures=full_P, residual=res_P[3])
+
+
+# =============================================================================
+# 3-D Bayesian force-balance solver
+# =============================================================================
+
+def solve_bayesian_3d(
+    tissue: Tissue,
+    mu: Union[float, List[float], np.ndarray] = None,
+    exclude_border_edges: bool = True,
+    border_margin: int = 5,
+) -> Optional[Union[ForceResult, BayesianScanResult]]:
+    """
+    True 3-D Bayesian force-balance solver.
+
+    Extends :func:`solve_bayesian` to use the full (x, y, z) vertex coordinates
+    stored in ``tissue.V[:, 2]``, which must have been set beforehand via
+    :func:`~force_inference.geometry.map_z_to_vertices`.
+
+    Physics
+    -------
+    Force balance at each fully-interior junction vertex in 3-D:
+
+        Σ_e  T_e · û_e(v)  +  Σ_c  P_c · a_c(v)  =  0     (x, y, z)
+
+    where:
+    - **û_e(v)** is the 3-D unit tangent of edge *e* at vertex *v*,
+      computed from ``V[v2] − V[v1]`` in full 3-D.
+    - **a_c(v)** is the area-gradient of cell *c* at vertex *v*:
+
+          a_c(v_k) = ½ (r_{k−1} − r_{k+1}) × n̂_c
+
+      with **n̂_c** the unit surface normal of cell *c*, estimated via
+      Newell's method from the 3-D vertex polygon.
+
+    For a flat tissue (all Z = 0) this reduces to exactly the 2-D system:
+    the z-force equations collapse to 0 = 0 and are skipped automatically.
+
+    Parameters
+    ----------
+    tissue : Tissue
+        Must have ``tissue.V.shape[1] == 3`` and non-zero Z values.
+        Call :func:`~force_inference.geometry.map_z_to_vertices` first.
+    mu, exclude_border_edges, border_margin :
+        Same semantics as :func:`solve_bayesian`.
+
+    Returns
+    -------
+    ForceResult or BayesianScanResult
+        Same structure as the 2-D solver.
+
+    Notes
+    -----
+    * The Bayesian evidence, regularisation (tensions ~ 1 prior), and
+      lsqr back-end are identical to the 2-D solver; only the force-balance
+      matrix A is different (3 rows per vertex, 3-D tangents, cross-product
+      pressure terms).
+    * If all Z coordinates are zero, a warning is issued and the standard
+      2-D solver is called instead.
+    """
+    # Sanity-check: do we actually have 3-D data?
+    if tissue.V.shape[1] < 3 or not np.any(tissue.V[:, 2] != 0):
+        logger.warning(
+            "solve_bayesian_3d: Z coordinates are all zero — falling back to "
+            "2-D solver.  Call geometry.map_z_to_vertices() first."
+        )
+        return solve_bayesian(tissue, mu=mu,
+                              exclude_border_edges=exclude_border_edges,
+                              border_margin=border_margin)
+
+    matrices = _build_bayesian_matrices_3d(
+        tissue,
+        exclude_border_edges=exclude_border_edges,
+        border_margin=border_margin,
+    )
+    if matrices is None:
+        return None
+
+    A, B, g, n_eq, n_vars, real_edge_indices = matrices
+    n_real_edges = len(real_edge_indices)
+
+    if isinstance(mu, (float, int)):
+        return _solve_single_mu(A, B, g, mu, n_eq, tissue, real_edge_indices)
+
+    # --- Scan mu ---
+    if mu is None:
+        mu_exponents = np.arange(-10.0, -5.1, 0.25)  # 10^-10 to 10^-5.25, 19 values
+        mu_values = 10.0 ** mu_exponents
+    else:
+        mu_values = np.array(mu)
+
+    logger.info(f"[3D] Scanning {len(mu_values)} mu values …")
+
+    results, log_evidences, residuals = [], [], []
+    use_exact = n_vars < 4000
+    ATA = None
+    if use_exact:
+        ATA = A.toarray().T @ A.toarray()
+
+    for val in mu_values:
+        res = _solve_single_mu(A, B, g, val, n_eq, tissue, real_edge_indices)
+        ev = (
+            _compute_log_evidence_robust(A, B, g, val, res, ATA, n_eq, n_real_edges)
+            if use_exact
+            else _compute_log_evidence_approx(A, B, val, res)
+        )
+        results.append(res)
+        log_evidences.append(ev)
+        residuals.append(res.residual)
+
+    best_idx = int(np.argmax(log_evidences))
+    logger.info(f"[3D] Optimal mu = {mu_values[best_idx]:.4g}")
+
+    return BayesianScanResult(
+        best_mu=float(mu_values[best_idx]),
+        best_result=results[best_idx],
+        mu_values=mu_values,
+        log_evidences=np.array(log_evidences),
+        residuals=np.array(residuals),
+    )
+
+
+def _compute_cell_normals(tissue: Tissue) -> np.ndarray:
+    """
+    Estimate the 3-D surface normal for every cell using Newell's method.
+
+    Newell's method computes the normal of an (optionally non-planar) polygon
+    as the sum of cross products of consecutive edge pairs, which is numerically
+    robust for polygons on a slightly curved surface.
+
+    For a flat tissue (Z = 0) all normals are [0, 0, +1].
+
+    Returns
+    -------
+    normals : (n_cells, 3) float array of unit normal vectors.
+    """
+    V = tissue.V          # (N, 3)
+    n_cells = len(tissue.C_v)
+    normals = np.zeros((n_cells, 3), dtype=float)
+
+    for ci, verts in enumerate(tissue.C_v):
+        if len(verts) < 3:
+            normals[ci] = [0.0, 0.0, 1.0]
+            continue
+
+        pts = V[np.asarray(verts, dtype=int), :3]   # (n_v, 3)
+        n_v = len(pts)
+
+        # Newell's method: accumulate cross-products from a fan at pts[0]
+        normal = np.zeros(3)
+        for i in range(1, n_v - 1):
+            a = pts[i]     - pts[0]
+            b = pts[i + 1] - pts[0]
+            normal += np.cross(a, b)
+
+        norm_len = float(np.linalg.norm(normal))
+        if norm_len > 1e-12:
+            normals[ci] = normal / norm_len
+        else:
+            normals[ci] = [0.0, 0.0, 1.0]   # degenerate polygon → default to +Z
+
+    return normals
+
+
+def _build_bayesian_matrices_3d(
+    tissue: Tissue,
+    exclude_border_edges: bool = True,
+    border_margin: int = 5,
+):
+    """
+    Build the force-balance matrix for the 3-D Bayesian solver.
+
+    Identical to :func:`_build_bayesian_matrices` except:
+    - Edge tangents û_e are full 3-D unit vectors.
+    - 3 force-balance equations per vertex (x, y, z).
+    - Pressure contribution uses the cross-product formula with the
+      per-cell surface normal (Newell's method).
+
+    For flat tissue (Z = 0):
+        û_e  →  (u_x, u_y, 0)
+        n̂_c  →  (0, 0, 1)
+        a_c(v) = ½(r_prev−r_next)×(0,0,1) = ½(y_prev−y_next, x_next−x_prev, 0)
+
+    which is exactly the 2-D formula in the xy rows plus a trivially-zero z row.
+    """
+    V = tissue.V          # (N, 3)
+    E = tissue.E
+    E_cells = tissue.E_cells
+    C_v = tissue.C_v
+
+    if len(V) == 0:
+        return None
+
+    H_img, W_img = tissue.labels.shape
+    margin = border_margin
+
+    # --- Border classification (same as 2-D, based on XY only) ---
+    is_border_v = (
+        (V[:, 0] < margin) | (V[:, 0] > W_img - margin) |
+        (V[:, 1] < margin) | (V[:, 1] > H_img - margin)
+    )
+
+    if exclude_border_edges:
+        is_real_edge = np.array([
+            (not is_border_v[v1]) and (not is_border_v[v2])
+            for v1, v2 in E
+        ])
+        real_edge_indices = np.where(is_real_edge)[0]
+        real_edge_set = set(real_edge_indices.tolist())
+        e_map = {int(old): new for new, old in enumerate(real_edge_indices)}
+        n_edges = len(real_edge_indices)
+
+        vertex_edges: dict = {v: [] for v in range(len(V))}
+        for e_idx, (v1, v2) in enumerate(E):
+            vertex_edges[v1].append(e_idx)
+            vertex_edges[v2].append(e_idx)
+
+        fully_interior_v = [
+            v for v in range(len(V))
+            if not is_border_v[v]
+            and len(vertex_edges[v]) > 0
+            and all(e in real_edge_set for e in vertex_edges[v])
+        ]
+        v_map = {v: i for i, v in enumerate(fully_interior_v)}
+        logger.info(f"[3D] {n_edges}/{len(E)} interior edges, "
+                    f"{len(fully_interior_v)} interior vertices")
+    else:
+        real_edge_indices = np.arange(len(E))
+        e_map = {i: i for i in range(len(E))}
+        n_edges = len(E)
+        v_map = {int(v): i for i, v in enumerate(np.where(~is_border_v)[0])}
+
+    if len(v_map) == 0:
+        logger.warning("[3D] No fully interior vertices found!")
+        return None
+
+    # --- Determine active equations ---
+    # For a flat tissue the z-force equation is trivially 0 = 0.
+    # We keep all 3 components but the lsqr solver handles rank-deficiency fine.
+    ndim = 3
+    n_eq   = ndim * len(v_map)
+    n_vars = n_edges + len(C_v)
+
+    logger.info(f"[3D] System: {n_eq} equations ({ndim}D × {len(v_map)} vertices), "
+                f"{n_vars} unknowns ({n_edges} tensions + {len(C_v)} pressures)")
+    logger.info(f"[3D] Ratio eq/unknowns: {n_eq/n_vars:.2f}")
+
+    A = sp.lil_matrix((n_eq, n_vars))
+
+    # --- Tension block: 3-D unit tangent vectors ---
+    for old_idx in real_edge_indices:
+        v1, v2 = E[old_idx]
+        new_idx = e_map[int(old_idx)]
+        d_vec = V[v2, :3] - V[v1, :3]           # full 3-D displacement
+        length = float(np.linalg.norm(d_vec)) + 1e-9
+        u = d_vec / length                        # unit tangent (3-D)
+
+        if v1 in v_map:
+            r = ndim * v_map[v1]
+            A[r,     new_idx] += u[0]
+            A[r + 1, new_idx] += u[1]
+            A[r + 2, new_idx] += u[2]
+        if v2 in v_map:
+            r = ndim * v_map[v2]
+            A[r,     new_idx] -= u[0]
+            A[r + 1, new_idx] -= u[1]
+            A[r + 2, new_idx] -= u[2]
+
+    # --- Pressure block: cross-product with cell surface normal ---
+    cell_normals = _compute_cell_normals(tissue)   # (n_cells, 3) unit normals
+
+    for c_idx, verts in enumerate(C_v):
+        n_verts = len(verts)
+        if n_verts < 3:
+            continue
+        n_c = cell_normals[c_idx]      # unit normal for this cell
+
+        for i, vc in enumerate(verts):
+            if vc not in v_map:
+                continue
+            vp = verts[i - 1]
+            vn = verts[(i + 1) % n_verts]
+            r  = ndim * v_map[vc]
+
+            # a_c(v_k) = ½ (r_{k-1} − r_{k+1}) × n̂_c
+            # For Z=0, n̂_c=(0,0,1):
+            #   → (½(y_p−y_n), ½(x_n−x_p), 0)   — same as the 2-D formula ✓
+            dr = V[vp, :3] - V[vn, :3]
+            f  = 0.5 * np.cross(dr, n_c)          # (3,) area-gradient vector
+
+            A[r,     n_edges + c_idx] += f[0]
+            A[r + 1, n_edges + c_idx] += f[1]
+            A[r + 2, n_edges + c_idx] += f[2]
+
+    # --- Regularisation prior: tensions ~ 1 ---
+    B = sp.lil_matrix((n_vars, n_vars))
+    g = np.zeros(n_vars)
+    for i in range(n_edges):
+        B[i, i] = 1.0
+        g[i]    = 1.0
+
+    return A, B, g, n_eq, n_vars, real_edge_indices
